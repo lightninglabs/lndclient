@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
-	"github.com/lightninglabs/loop/swap"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"google.golang.org/grpc"
@@ -61,7 +60,7 @@ type LndServicesConfig struct {
 	LndAddress string
 
 	// Network is the bitcoin network we expect the lnd node to operate on.
-	Network string
+	Network Network
 
 	// MacaroonDir is the directory where all lnd macaroons can be found.
 	MacaroonDir string
@@ -127,25 +126,25 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	macaroonDir := cfg.MacaroonDir
 	if macaroonDir == "" {
 		switch cfg.Network {
-		case "testnet":
+		case NetworkTestnet:
 			macaroonDir = filepath.Join(
 				defaultLndDir, defaultDataDir,
 				defaultChainSubDir, "bitcoin", "testnet",
 			)
 
-		case "mainnet":
+		case NetworkMainnet:
 			macaroonDir = filepath.Join(
 				defaultLndDir, defaultDataDir,
 				defaultChainSubDir, "bitcoin", "mainnet",
 			)
 
-		case "simnet":
+		case NetworkSimnet:
 			macaroonDir = filepath.Join(
 				defaultLndDir, defaultDataDir,
 				defaultChainSubDir, "bitcoin", "simnet",
 			)
 
-		case "regtest":
+		case NetworkRegtest:
 			macaroonDir = filepath.Join(
 				defaultLndDir, defaultDataDir,
 				defaultChainSubDir, "bitcoin", "regtest",
@@ -166,7 +165,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	log.Infof("Connected to lnd")
 
-	chainParams, err := swap.ChainParamsFromNetwork(cfg.Network)
+	chainParams, err := cfg.Network.ChainParams()
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +265,7 @@ func (s *GrpcLndServices) Close() {
 // correct network, has the version RPC implemented, is the correct minimal
 // version and supports all required build tags/subservers.
 func checkLndCompatibility(conn *grpc.ClientConn, chainParams *chaincfg.Params,
-	readonlyMac serializedMacaroon, network string,
+	readonlyMac serializedMacaroon, network Network,
 	minVersion *verrpc.Version) (string, [33]byte, *verrpc.Version, error) {
 
 	// onErr is a closure that simplifies returning multiple values in the
@@ -301,7 +300,7 @@ func checkLndCompatibility(conn *grpc.ClientConn, chainParams *chaincfg.Params,
 		err := fmt.Errorf("unable to get info for lnd node: %v", err)
 		return onErr(err)
 	}
-	if network != info.Network {
+	if string(network) != info.Network {
 		err := fmt.Errorf("network mismatch with connected lnd node, "+
 			"wanted '%s', got '%s'", network, info.Network)
 		return onErr(err)

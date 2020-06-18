@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/loop/swap"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"google.golang.org/grpc"
@@ -79,7 +78,7 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		tx, err := swap.DecodeTx(d.RawSpendingTx)
+		tx, err := decodeTx(d.RawSpendingTx)
 		if err != nil {
 			return err
 		}
@@ -161,7 +160,7 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 
 			// Script confirmed
 			case *chainrpc.ConfEvent_Conf:
-				tx, err := swap.DecodeTx(c.Conf.RawTx)
+				tx, err := decodeTx(c.Conf.RawTx)
 				if err != nil {
 					errChan <- err
 					return
