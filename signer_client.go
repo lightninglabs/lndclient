@@ -5,7 +5,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/loop/swap"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -111,7 +110,7 @@ func marshallSignDescriptors(signDescriptors []*input.SignDescriptor,
 func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
 	signDescriptors []*input.SignDescriptor) ([][]byte, error) {
 
-	txRaw, err := swap.EncodeTx(tx)
+	txRaw, err := encodeTx(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +140,7 @@ func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
 func (s *signerClient) ComputeInputScript(ctx context.Context, tx *wire.MsgTx,
 	signDescriptors []*input.SignDescriptor) ([]*input.Script, error) {
 
-	txRaw, err := swap.EncodeTx(tx)
+	txRaw, err := encodeTx(tx)
 	if err != nil {
 		return nil, err
 	}
