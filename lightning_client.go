@@ -78,6 +78,10 @@ type LightningClient interface {
 	// open channels. The backups are returned as an encrypted
 	// chanbackup.Multi payload.
 	ChannelBackups(ctx context.Context) ([]byte, error)
+
+	// DecodePaymentRequest decodes a payment request.
+	DecodePaymentRequest(ctx context.Context,
+		payReq string) (*PaymentRequest, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -1228,4 +1232,77 @@ func (s *lightningClient) ChannelBackups(ctx context.Context) ([]byte, error) {
 	}
 
 	return resp.MultiChanBackup.MultiChanBackup, nil
+}
+
+// PaymentRequest represents a request for payment from a node.
+type PaymentRequest struct {
+	// Destination is the node that this payment request pays to .
+	Destination route.Vertex
+
+	// Hash is the payment hash associated with this payment
+	Hash lntypes.Hash
+
+	// Value is the value of the payment request in millisatoshis.
+	Value lnwire.MilliSatoshi
+
+	/// Timestamp of the payment request.
+	Timestamp time.Time
+
+	// Expiry is the time at which the payment request expires.
+	Expiry time.Time
+
+	// Description is a description attached to the payment request.
+	Description string
+
+	// PaymentAddress is the payment address associated with the invoice,
+	// set if the receiver supports mpp.
+	PaymentAddress [32]byte
+}
+
+// DecodePaymentRequest decodes a payment request.
+func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
+	payReq string) (*PaymentRequest, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.DecodePayReq(rpcCtx, &lnrpc.PayReqString{
+		PayReq: payReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	hash, err := lntypes.MakeHashFromStr(resp.PaymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	dest, err := route.NewVertexFromStr(resp.Destination)
+	if err != nil {
+		return nil, err
+	}
+
+	paymentReq := &PaymentRequest{
+		Destination: dest,
+		Hash:        hash,
+		Value:       lnwire.MilliSatoshi(resp.NumMsat),
+		Description: resp.Description,
+	}
+
+	copy(paymentReq.PaymentAddress[:], resp.PaymentAddr)
+
+	// Set our timestamp values if they are non-zero, because unix zero is
+	// different to a zero time struct.
+	if resp.Timestamp != 0 {
+		paymentReq.Timestamp = time.Unix(resp.Timestamp, 0)
+	}
+
+	if resp.Expiry != 0 {
+		paymentReq.Expiry = time.Unix(resp.Expiry, 0)
+	}
+
+	return paymentReq, nil
 }
