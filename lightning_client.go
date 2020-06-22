@@ -1087,6 +1087,11 @@ type Payment struct {
 	// if the payment is settled.
 	Preimage *lntypes.Preimage
 
+	// PaymentRequest is the payment request for this payment. This value
+	// will not be set for keysend payments and for payments that manually
+	// specify their destination and amount.
+	PaymentRequest string
+
 	// Amount is the amount in millisatoshis of the payment.
 	Amount lnwire.MilliSatoshi
 
@@ -1165,6 +1170,7 @@ func (s *lightningClient) ListPayments(ctx context.Context,
 
 		pmt := Payment{
 			Hash:           hash,
+			PaymentRequest: payment.PaymentRequest,
 			Status:         status,
 			Htlcs:          payment.Htlcs,
 			Amount:         lnwire.MilliSatoshi(payment.ValueMsat),
