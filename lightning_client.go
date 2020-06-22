@@ -44,8 +44,12 @@ type LightningClient interface {
 	LookupInvoice(ctx context.Context, hash lntypes.Hash) (*Invoice, error)
 
 	// ListTransactions returns all known transactions of the backing lnd
-	// node.
-	ListTransactions(ctx context.Context) ([]Transaction, error)
+	// node. It takes a start and end block height which can be used to
+	// limit the block range that we query over. These values can be left
+	// as zero to include all blocks. To include unconfirmed transactions
+	// in the query, endHeight must be set to -1.
+	ListTransactions(ctx context.Context, startHeight,
+		endHeight int32) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
 	ListChannels(ctx context.Context) ([]ChannelInfo, error)
@@ -704,12 +708,18 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 }
 
 // ListTransactions returns all known transactions of the backing lnd node.
-func (s *lightningClient) ListTransactions(ctx context.Context) ([]Transaction, error) {
+func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
+	endHeight int32) ([]Transaction, error) {
+
 	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
-	rpcIn := &lnrpc.GetTransactionsRequest{}
+	rpcIn := &lnrpc.GetTransactionsRequest{
+		StartHeight: startHeight,
+		EndHeight:   endHeight,
+	}
+
 	resp, err := s.client.GetTransactions(rpcCtx, rpcIn)
 	if err != nil {
 		return nil, err
