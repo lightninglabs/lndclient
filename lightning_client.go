@@ -44,8 +44,12 @@ type LightningClient interface {
 	LookupInvoice(ctx context.Context, hash lntypes.Hash) (*Invoice, error)
 
 	// ListTransactions returns all known transactions of the backing lnd
-	// node.
-	ListTransactions(ctx context.Context) ([]Transaction, error)
+	// node. It takes a start and end block height which can be used to
+	// limit the block range that we query over. These values can be left
+	// as zero to include all blocks. To include unconfirmed transactions
+	// in the query, endHeight must be set to -1.
+	ListTransactions(ctx context.Context, startHeight,
+		endHeight int32) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
 	ListChannels(ctx context.Context) ([]ChannelInfo, error)
@@ -74,6 +78,10 @@ type LightningClient interface {
 	// open channels. The backups are returned as an encrypted
 	// chanbackup.Multi payload.
 	ChannelBackups(ctx context.Context) ([]byte, error)
+
+	// DecodePaymentRequest decodes a payment request.
+	DecodePaymentRequest(ctx context.Context,
+		payReq string) (*PaymentRequest, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -704,12 +712,18 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 }
 
 // ListTransactions returns all known transactions of the backing lnd node.
-func (s *lightningClient) ListTransactions(ctx context.Context) ([]Transaction, error) {
+func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
+	endHeight int32) ([]Transaction, error) {
+
 	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
-	rpcIn := &lnrpc.GetTransactionsRequest{}
+	rpcIn := &lnrpc.GetTransactionsRequest{
+		StartHeight: startHeight,
+		EndHeight:   endHeight,
+	}
+
 	resp, err := s.client.GetTransactions(rpcCtx, rpcIn)
 	if err != nil {
 		return nil, err
@@ -1073,6 +1087,11 @@ type Payment struct {
 	// if the payment is settled.
 	Preimage *lntypes.Preimage
 
+	// PaymentRequest is the payment request for this payment. This value
+	// will not be set for keysend payments and for payments that manually
+	// specify their destination and amount.
+	PaymentRequest string
+
 	// Amount is the amount in millisatoshis of the payment.
 	Amount lnwire.MilliSatoshi
 
@@ -1151,6 +1170,7 @@ func (s *lightningClient) ListPayments(ctx context.Context,
 
 		pmt := Payment{
 			Hash:           hash,
+			PaymentRequest: payment.PaymentRequest,
 			Status:         status,
 			Htlcs:          payment.Htlcs,
 			Amount:         lnwire.MilliSatoshi(payment.ValueMsat),
@@ -1218,4 +1238,77 @@ func (s *lightningClient) ChannelBackups(ctx context.Context) ([]byte, error) {
 	}
 
 	return resp.MultiChanBackup.MultiChanBackup, nil
+}
+
+// PaymentRequest represents a request for payment from a node.
+type PaymentRequest struct {
+	// Destination is the node that this payment request pays to .
+	Destination route.Vertex
+
+	// Hash is the payment hash associated with this payment
+	Hash lntypes.Hash
+
+	// Value is the value of the payment request in millisatoshis.
+	Value lnwire.MilliSatoshi
+
+	/// Timestamp of the payment request.
+	Timestamp time.Time
+
+	// Expiry is the time at which the payment request expires.
+	Expiry time.Time
+
+	// Description is a description attached to the payment request.
+	Description string
+
+	// PaymentAddress is the payment address associated with the invoice,
+	// set if the receiver supports mpp.
+	PaymentAddress [32]byte
+}
+
+// DecodePaymentRequest decodes a payment request.
+func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
+	payReq string) (*PaymentRequest, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.DecodePayReq(rpcCtx, &lnrpc.PayReqString{
+		PayReq: payReq,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	hash, err := lntypes.MakeHashFromStr(resp.PaymentHash)
+	if err != nil {
+		return nil, err
+	}
+
+	dest, err := route.NewVertexFromStr(resp.Destination)
+	if err != nil {
+		return nil, err
+	}
+
+	paymentReq := &PaymentRequest{
+		Destination: dest,
+		Hash:        hash,
+		Value:       lnwire.MilliSatoshi(resp.NumMsat),
+		Description: resp.Description,
+	}
+
+	copy(paymentReq.PaymentAddress[:], resp.PaymentAddr)
+
+	// Set our timestamp values if they are non-zero, because unix zero is
+	// different to a zero time struct.
+	if resp.Timestamp != 0 {
+		paymentReq.Timestamp = time.Unix(resp.Timestamp, 0)
+	}
+
+	if resp.Expiry != 0 {
+		paymentReq.Expiry = time.Unix(resp.Expiry, 0)
+	}
+
+	return paymentReq, nil
 }
