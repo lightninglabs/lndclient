@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -14,14 +15,14 @@ import (
 // SignerClient exposes sign functionality.
 type SignerClient interface {
 	SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
-		signDescriptors []*input.SignDescriptor) ([][]byte, error)
+		signDescriptors []*SignDescriptor) ([][]byte, error)
 
 	// ComputeInputScript generates the proper input script for P2WPKH
 	// output and NP2WPKH outputs. This method only requires that the
 	// `Output`, `HashType`, `SigHashes` and `InputIndex` fields are
 	// populated within the sign descriptors.
 	ComputeInputScript(ctx context.Context, tx *wire.MsgTx,
-		signDescriptors []*input.SignDescriptor) ([]*input.Script, error)
+		signDescriptors []*SignDescriptor) ([]*input.Script, error)
 
 	// SignMessage signs a message with the key specified in the key
 	// locator. The returned signature is fixed-size LN wire format encoded.
@@ -48,6 +49,64 @@ type SignerClient interface {
 		keyLocator *keychain.KeyLocator) ([32]byte, error)
 }
 
+// SignDescriptor houses the necessary information required to successfully
+// sign a given segwit output. This struct is used by the Signer interface in
+// order to gain access to critical data needed to generate a valid signature.
+type SignDescriptor struct {
+	// KeyDesc is a descriptor that precisely describes *which* key to use
+	// for signing. This may provide the raw public key directly, or
+	// require the Signer to re-derive the key according to the populated
+	// derivation path.
+	KeyDesc keychain.KeyDescriptor
+
+	// SingleTweak is a scalar value that will be added to the private key
+	// corresponding to the above public key to obtain the private key to
+	// be used to sign this input. This value is typically derived via the
+	// following computation:
+	//
+	//  * derivedKey = privkey + sha256(perCommitmentPoint || pubKey) mod N
+	//
+	// NOTE: If this value is nil, then the input can be signed using only
+	// the above public key. Either a SingleTweak should be set or a
+	// DoubleTweak, not both.
+	SingleTweak []byte
+
+	// DoubleTweak is a private key that will be used in combination with
+	// its corresponding private key to derive the private key that is to
+	// be used to sign the target input. Within the Lightning protocol,
+	// this value is typically the commitment secret from a previously
+	// revoked commitment transaction. This value is in combination with
+	// two hash values, and the original private key to derive the private
+	// key to be used when signing.
+	//
+	//  * k = (privKey*sha256(pubKey || tweakPub) +
+	//        tweakPriv*sha256(tweakPub || pubKey)) mod N
+	//
+	// NOTE: If this value is nil, then the input can be signed using only
+	// the above public key. Either a SingleTweak should be set or a
+	// DoubleTweak, not both.
+	DoubleTweak *btcec.PrivateKey
+
+	// WitnessScript is the full script required to properly redeem the
+	// output. This field should be set to the full script if a p2wsh
+	// output is being signed. For p2wkh it should be set to the hashed
+	// script (PkScript).
+	WitnessScript []byte
+
+	// Output is the target output which should be signed. The PkScript and
+	// Value fields within the output should be properly populated,
+	// otherwise an invalid signature may be generated.
+	Output *wire.TxOut
+
+	// HashType is the target sighash type that should be used when
+	// generating the final sighash, and signature.
+	HashType txscript.SigHashType
+
+	// InputIndex is the target input within the transaction that should be
+	// signed.
+	InputIndex int
+}
+
 type signerClient struct {
 	client    signrpc.SignerClient
 	signerMac serializedMacaroon
@@ -62,7 +121,7 @@ func newSignerClient(conn *grpc.ClientConn,
 	}
 }
 
-func marshallSignDescriptors(signDescriptors []*input.SignDescriptor,
+func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 ) []*signrpc.SignDescriptor {
 
 	rpcSignDescs := make([]*signrpc.SignDescriptor, len(signDescriptors))
@@ -108,7 +167,7 @@ func marshallSignDescriptors(signDescriptors []*input.SignDescriptor,
 }
 
 func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
-	signDescriptors []*input.SignDescriptor) ([][]byte, error) {
+	signDescriptors []*SignDescriptor) ([][]byte, error) {
 
 	txRaw, err := encodeTx(tx)
 	if err != nil {
@@ -138,7 +197,7 @@ func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
 // `SigHashes` and `InputIndex` fields are populated within the sign
 // descriptors.
 func (s *signerClient) ComputeInputScript(ctx context.Context, tx *wire.MsgTx,
-	signDescriptors []*input.SignDescriptor) ([]*input.Script, error) {
+	signDescriptors []*SignDescriptor) ([]*input.Script, error) {
 
 	txRaw, err := encodeTx(tx)
 	if err != nil {
