@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -82,6 +83,11 @@ type LightningClient interface {
 	// DecodePaymentRequest decodes a payment request.
 	DecodePaymentRequest(ctx context.Context,
 		payReq string) (*PaymentRequest, error)
+
+	// OpenChannel opens a channel to the peer provided with the amounts
+	// specified.
+	OpenChannel(ctx context.Context, peer route.Vertex,
+		localSat, pushSat btcutil.Amount) (*wire.OutPoint, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -1311,4 +1317,46 @@ func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
 	}
 
 	return paymentReq, nil
+}
+
+// OpenChannel opens a channel to the peer provided with the amounts specified.
+func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
+	localSat, pushSat btcutil.Amount) (*wire.OutPoint, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	chanPoint, err := s.client.OpenChannelSync(
+		rpcCtx, &lnrpc.OpenChannelRequest{
+			NodePubkey:         peer[:],
+			LocalFundingAmount: int64(localSat),
+			PushSat:            int64(pushSat),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var hash *chainhash.Hash
+	switch h := chanPoint.FundingTxid.(type) {
+	case *lnrpc.ChannelPoint_FundingTxidBytes:
+		hash, err = chainhash.NewHash(h.FundingTxidBytes)
+
+	case *lnrpc.ChannelPoint_FundingTxidStr:
+		hash, err = chainhash.NewHashFromStr(h.FundingTxidStr)
+
+	default:
+		return nil, fmt.Errorf("unexpected outpoint type: %T",
+			chanPoint.FundingTxid)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &wire.OutPoint{
+		Hash:  *hash,
+		Index: chanPoint.OutputIndex,
+	}, nil
 }
