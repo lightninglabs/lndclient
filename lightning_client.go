@@ -88,6 +88,9 @@ type LightningClient interface {
 	// specified.
 	OpenChannel(ctx context.Context, peer route.Vertex,
 		localSat, pushSat btcutil.Amount) (*wire.OutPoint, error)
+
+	// Connect attempts to connect to a peer at the host specified.
+	Connect(ctx context.Context, peer route.Vertex, host string) error
 }
 
 // Info contains info about the connected lnd node.
@@ -1359,4 +1362,23 @@ func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
 		Hash:  *hash,
 		Index: chanPoint.OutputIndex,
 	}, nil
+}
+
+// Connect attempts to connect to a peer at the host specified.
+func (s *lightningClient) Connect(ctx context.Context, peer route.Vertex,
+	host string) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	_, err := s.client.ConnectPeer(rpcCtx, &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: peer.String(),
+			Host:   host,
+		},
+	})
+
+	return err
 }
