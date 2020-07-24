@@ -3,7 +3,6 @@ package lndclient
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"time"
@@ -322,54 +321,6 @@ func unmarshallPaymentStatus(rpcPayment *lnrpc.Payment) (
 	}
 
 	return &status, nil
-}
-
-// unmarshallRoute unmarshalls an rpc route.
-func unmarshallRoute(rpcroute *lnrpc.Route) (
-	*route.Route, error) {
-
-	hops := make([]*route.Hop, len(rpcroute.Hops))
-	for i, hop := range rpcroute.Hops {
-		routeHop, err := unmarshallHop(hop)
-		if err != nil {
-			return nil, err
-		}
-
-		hops[i] = routeHop
-	}
-
-	// TODO(joostjager): Fetch self node from lnd.
-	selfNode := route.Vertex{}
-
-	route, err := route.NewRouteFromHops(
-		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
-		rpcroute.TotalTimeLock,
-		selfNode,
-		hops,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return route, nil
-}
-
-// unmarshallKnownPubkeyHop unmarshalls an rpc hop.
-func unmarshallHop(hop *lnrpc.Hop) (*route.Hop, error) {
-	pubKey, err := hex.DecodeString(hop.PubKey)
-	if err != nil {
-		return nil, fmt.Errorf("cannot decode pubkey %s", hop.PubKey)
-	}
-
-	var pubKeyBytes [33]byte
-	copy(pubKeyBytes[:], pubKey)
-
-	return &route.Hop{
-		OutgoingTimeLock: hop.Expiry,
-		AmtToForward:     lnwire.MilliSatoshi(hop.AmtToForwardMsat),
-		PubKeyBytes:      pubKeyBytes,
-		ChannelID:        hop.ChanId,
-	}, nil
 }
 
 // marshallRouteHints marshalls a list of route hints.
