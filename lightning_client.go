@@ -100,6 +100,14 @@ type Info struct {
 	Alias          string
 	Network        string
 	Uris           []string
+
+	// SyncedToChain is true if the wallet's view is synced to the main
+	// chain.
+	SyncedToChain bool
+
+	// SyncedToGraph is true if we consider ourselves to be synced with the
+	// public channel graph.
+	SyncedToGraph bool
 }
 
 // ChannelInfo stores unpacked per-channel info.
@@ -403,6 +411,8 @@ func (s *lightningClient) GetInfo(ctx context.Context) (*Info, error) {
 		Alias:          resp.Alias,
 		Network:        resp.Chains[0].Network,
 		Uris:           resp.Uris,
+		SyncedToChain:  resp.SyncedToChain,
+		SyncedToGraph:  resp.SyncedToGraph,
 	}, nil
 }
 
