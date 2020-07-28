@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -88,6 +89,10 @@ type LightningClient interface {
 	// specified.
 	OpenChannel(ctx context.Context, peer route.Vertex,
 		localSat, pushSat btcutil.Amount) (*wire.OutPoint, error)
+
+	// CloseChannel closes the channel provided.
+	CloseChannel(ctx context.Context, channel *wire.OutPoint,
+		force bool) (chan CloseChannelUpdate, chan error, error)
 
 	// Connect attempts to connect to a peer at the host specified.
 	Connect(ctx context.Context, peer route.Vertex, host string) error
@@ -1372,6 +1377,146 @@ func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
 		Hash:  *hash,
 		Index: chanPoint.OutputIndex,
 	}, nil
+}
+
+// CloseChannelUpdate is an interface implemented by channel close updates.
+type CloseChannelUpdate interface {
+	// CloseTxid returns the closing txid of the channel.
+	CloseTxid() chainhash.Hash
+}
+
+// PendingCloseUpdate indicates that our closing transaction has been broadcast.
+type PendingCloseUpdate struct {
+	// CloseTx is the closing transaction id.
+	CloseTx chainhash.Hash
+}
+
+// CloseTxid returns the closing txid of the channel.
+func (p *PendingCloseUpdate) CloseTxid() chainhash.Hash {
+	return p.CloseTx
+}
+
+// ChannelClosedUpdate indicates that our channel close has confirmed on chain.
+type ChannelClosedUpdate struct {
+	// CloseTx is the closing transaction id.
+	CloseTx chainhash.Hash
+}
+
+// CloseTxid returns the closing txid of the channel.
+func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
+	return p.CloseTx
+}
+
+// CloseChannel closes the channel provided, returning a channel that will send
+// a stream of close updates, and an error channel which will receive errors if
+// the channel close stream fails. This function starts a goroutine to consume
+// updates from lnd, which can be cancelled by cancelling the context it was
+// called with. If lnd finishes sending updates for the close (signalled by
+// sending an EOF), we close the updates and error channel to signal that there
+// are no more updates to be sent.
+func (s *lightningClient) CloseChannel(ctx context.Context,
+	channel *wire.OutPoint, force bool) (chan CloseChannelUpdate,
+	chan error, error) {
+
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+
+	stream, err := s.client.CloseChannel(rpcCtx, &lnrpc.CloseChannelRequest{
+		ChannelPoint: &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+				FundingTxidBytes: channel.Hash[:],
+			},
+			OutputIndex: channel.Index,
+		},
+		Force: force,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	updateChan := make(chan CloseChannelUpdate)
+	errChan := make(chan error)
+
+	// sendErr is a helper which sends an error or exits because our caller
+	// context was cancelled.
+	sendErr := func(err error) {
+		select {
+		case errChan <- err:
+		case <-ctx.Done():
+		}
+	}
+
+	// sendUpdate is a helper which sends an update or exits because our
+	// caller context was cancelled.
+	sendUpdate := func(update CloseChannelUpdate) {
+		select {
+		case updateChan <- update:
+		case <-ctx.Done():
+		}
+	}
+
+	// Send updates into our channels from the stream. We will exit if the
+	// server finishes sending updates, or if our context is cancelled.
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			// Wait to receive an update from lnd. If we receive
+			// an EOF from the server, it has finished providing
+			// updates so we close our update and error channels to
+			// signal that it has finished sending updates. Our
+			// stream will error if the caller cancels their context
+			// so this call will not block us.
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				close(updateChan)
+				close(errChan)
+				return
+			} else if err != nil {
+				sendErr(err)
+				return
+			}
+
+			switch update := resp.Update.(type) {
+			case *lnrpc.CloseStatusUpdate_ClosePending:
+				closingHash := update.ClosePending.Txid
+				txid, err := chainhash.NewHash(closingHash)
+				if err != nil {
+					sendErr(err)
+					return
+				}
+
+				closeUpdate := &PendingCloseUpdate{
+					CloseTx: *txid,
+				}
+				sendUpdate(closeUpdate)
+
+			case *lnrpc.CloseStatusUpdate_ChanClose:
+				closingHash := update.ChanClose.ClosingTxid
+				txid, err := chainhash.NewHash(closingHash)
+				if err != nil {
+					sendErr(err)
+					return
+				}
+
+				// Create and send our update. We do not need
+				// to kill our for loop here because we expect
+				// the server to signal that the stream is
+				// complete, which is handled above.
+				closeUpdate := &ChannelClosedUpdate{
+					CloseTx: *txid,
+				}
+				sendUpdate(closeUpdate)
+
+			default:
+				sendErr(fmt.Errorf("unknown channel close "+
+					"update: %T", resp.Update))
+				return
+			}
+		}
+	}()
+
+	return updateChan, errChan, nil
 }
 
 // Connect attempts to connect to a peer at the host specified.
