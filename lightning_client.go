@@ -56,6 +56,9 @@ type LightningClient interface {
 	// ListChannels retrieves all channels of the backing lnd node.
 	ListChannels(ctx context.Context) ([]ChannelInfo, error)
 
+	// PendingChannels returns a list of lnd's pending channels.
+	PendingChannels(ctx context.Context) (*PendingChannels, error)
+
 	// ClosedChannels returns all closed channels of the backing lnd node.
 	ClosedChannels(ctx context.Context) ([]ClosedChannel, error)
 
@@ -821,6 +824,175 @@ func (s *lightningClient) ListChannels(ctx context.Context) (
 	}
 
 	return result, nil
+}
+
+// PendingChannels contains lnd's channels that are pending open and close.
+type PendingChannels struct {
+	// PendingForceClose contains our channels that have been force closed,
+	// and are awaiting full on chain resolution.
+	PendingForceClose []ForceCloseChannel
+
+	// PendingOpen contains channels that we are waiting to confirm on chain
+	// so that they can be marked as fully open.
+	PendingOpen []PendingChannel
+
+	// WaitingClose contains channels that are waiting for their close tx
+	// to confirm.
+	WaitingClose []WaitingCloseChannel
+}
+
+// PendingChannel contains the information common to all pending channels.
+type PendingChannel struct {
+	// ChannelPoint is the outpoint of the channel.
+	ChannelPoint *wire.OutPoint
+
+	// PubKeyBytes is the raw bytes of the public key of the remote node.
+	PubKeyBytes route.Vertex
+
+	// Capacity is the total amount of funds held in this channel.
+	Capacity btcutil.Amount
+
+	// ChannelInitiator indicates which party opened the channel.
+	ChannelInitiator Initiator
+}
+
+// NewPendingChannel creates a pending channel from the rpc struct.
+func NewPendingChannel(channel *lnrpc.PendingChannelsResponse_PendingChannel) (
+	*PendingChannel, error) {
+
+	peer, err := route.NewVertexFromStr(channel.RemoteNodePub)
+	if err != nil {
+		return nil, err
+	}
+
+	outpoint, err := NewOutpointFromStr(channel.ChannelPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	initiator, err := getInitiator(channel.Initiator)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PendingChannel{
+		ChannelPoint:     outpoint,
+		PubKeyBytes:      peer,
+		Capacity:         btcutil.Amount(channel.Capacity),
+		ChannelInitiator: initiator,
+	}, nil
+}
+
+// ForceCloseChannel describes a channel that pending force close.
+type ForceCloseChannel struct {
+	// PendingChannel contains information about the channel.
+	PendingChannel
+
+	// CloseTxid is the close transaction that confirmed on chain.
+	CloseTxid chainhash.Hash
+}
+
+// WaitingCloseChannel describes a channel that we are waiting to be closed on
+// chain. It contains both parties close txids because either may confirm at
+// this point.
+type WaitingCloseChannel struct {
+	// PendingChannel contains information about the channel.
+	PendingChannel
+
+	// LocalTxid is our close transaction's txid.
+	LocalTxid chainhash.Hash
+
+	// RemoteTxid is the remote party's close txid.
+	RemoteTxid chainhash.Hash
+
+	// RemotePending is the txid of the remote party's pending commit.
+	RemotePending chainhash.Hash
+}
+
+// PendingChannels returns a list of lnd's pending channels.
+func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	resp, err := s.client.PendingChannels(
+		s.adminMac.WithMacaroonAuth(rpcCtx),
+		&lnrpc.PendingChannelsRequest{},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pending := &PendingChannels{
+		PendingForceClose: make([]ForceCloseChannel, len(resp.PendingForceClosingChannels)),
+		PendingOpen:       make([]PendingChannel, len(resp.PendingOpenChannels)),
+		WaitingClose:      make([]WaitingCloseChannel, len(resp.WaitingCloseChannels)),
+	}
+
+	for i, force := range resp.PendingForceClosingChannels {
+		channel, err := NewPendingChannel(force.Channel)
+		if err != nil {
+			return nil, err
+		}
+
+		hash, err := chainhash.NewHashFromStr(force.ClosingTxid)
+		if err != nil {
+			return nil, err
+		}
+
+		pending.PendingForceClose[i] = ForceCloseChannel{
+			PendingChannel: *channel,
+			CloseTxid:      *hash,
+		}
+	}
+
+	for i, waiting := range resp.WaitingCloseChannels {
+		channel, err := NewPendingChannel(waiting.Channel)
+		if err != nil {
+			return nil, err
+		}
+
+		local, err := chainhash.NewHashFromStr(
+			waiting.Commitments.LocalTxid,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		remote, err := chainhash.NewHashFromStr(
+			waiting.Commitments.RemoteTxid,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		remotePending, err := chainhash.NewHashFromStr(
+			waiting.Commitments.RemotePendingTxid,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		closing := WaitingCloseChannel{
+			PendingChannel: *channel,
+			LocalTxid:      *local,
+			RemoteTxid:     *remote,
+			RemotePending:  *remotePending,
+		}
+		pending.WaitingClose[i] = closing
+	}
+
+	for i, open := range resp.PendingOpenChannels {
+		channel, err := NewPendingChannel(open.Channel)
+		if err != nil {
+			return nil, err
+		}
+
+		pending.PendingOpen[i] = *channel
+	}
+
+	return pending, nil
 }
 
 // ClosedChannels returns a list of our closed channels.
