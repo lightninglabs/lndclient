@@ -29,8 +29,8 @@ var (
 	// back version if none is specified in the configuration.
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor: 0,
-		AppMinor: 10,
-		AppPatch: 1,
+		AppMinor: 11,
+		AppPatch: 0,
 		BuildTags: []string{
 			"signrpc", "walletrpc", "chainrpc", "invoicesrpc",
 		},
