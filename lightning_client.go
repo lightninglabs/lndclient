@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -55,6 +56,9 @@ type LightningClient interface {
 	// ListChannels retrieves all channels of the backing lnd node.
 	ListChannels(ctx context.Context) ([]ChannelInfo, error)
 
+	// PendingChannels returns a list of lnd's pending channels.
+	PendingChannels(ctx context.Context) (*PendingChannels, error)
+
 	// ClosedChannels returns all closed channels of the backing lnd node.
 	ClosedChannels(ctx context.Context) ([]ClosedChannel, error)
 
@@ -89,6 +93,10 @@ type LightningClient interface {
 	OpenChannel(ctx context.Context, peer route.Vertex,
 		localSat, pushSat btcutil.Amount) (*wire.OutPoint, error)
 
+	// CloseChannel closes the channel provided.
+	CloseChannel(ctx context.Context, channel *wire.OutPoint,
+		force bool) (chan CloseChannelUpdate, chan error, error)
+
 	// Connect attempts to connect to a peer at the host specified.
 	Connect(ctx context.Context, peer route.Vertex, host string) error
 }
@@ -100,6 +108,14 @@ type Info struct {
 	Alias          string
 	Network        string
 	Uris           []string
+
+	// SyncedToChain is true if the wallet's view is synced to the main
+	// chain.
+	SyncedToChain bool
+
+	// SyncedToGraph is true if we consider ourselves to be synced with the
+	// public channel graph.
+	SyncedToGraph bool
 }
 
 // ChannelInfo stores unpacked per-channel info.
@@ -403,6 +419,8 @@ func (s *lightningClient) GetInfo(ctx context.Context) (*Info, error) {
 		Alias:          resp.Alias,
 		Network:        resp.Chains[0].Network,
 		Uris:           resp.Uris,
+		SyncedToChain:  resp.SyncedToChain,
+		SyncedToGraph:  resp.SyncedToGraph,
 	}, nil
 }
 
@@ -806,6 +824,175 @@ func (s *lightningClient) ListChannels(ctx context.Context) (
 	}
 
 	return result, nil
+}
+
+// PendingChannels contains lnd's channels that are pending open and close.
+type PendingChannels struct {
+	// PendingForceClose contains our channels that have been force closed,
+	// and are awaiting full on chain resolution.
+	PendingForceClose []ForceCloseChannel
+
+	// PendingOpen contains channels that we are waiting to confirm on chain
+	// so that they can be marked as fully open.
+	PendingOpen []PendingChannel
+
+	// WaitingClose contains channels that are waiting for their close tx
+	// to confirm.
+	WaitingClose []WaitingCloseChannel
+}
+
+// PendingChannel contains the information common to all pending channels.
+type PendingChannel struct {
+	// ChannelPoint is the outpoint of the channel.
+	ChannelPoint *wire.OutPoint
+
+	// PubKeyBytes is the raw bytes of the public key of the remote node.
+	PubKeyBytes route.Vertex
+
+	// Capacity is the total amount of funds held in this channel.
+	Capacity btcutil.Amount
+
+	// ChannelInitiator indicates which party opened the channel.
+	ChannelInitiator Initiator
+}
+
+// NewPendingChannel creates a pending channel from the rpc struct.
+func NewPendingChannel(channel *lnrpc.PendingChannelsResponse_PendingChannel) (
+	*PendingChannel, error) {
+
+	peer, err := route.NewVertexFromStr(channel.RemoteNodePub)
+	if err != nil {
+		return nil, err
+	}
+
+	outpoint, err := NewOutpointFromStr(channel.ChannelPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	initiator, err := getInitiator(channel.Initiator)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PendingChannel{
+		ChannelPoint:     outpoint,
+		PubKeyBytes:      peer,
+		Capacity:         btcutil.Amount(channel.Capacity),
+		ChannelInitiator: initiator,
+	}, nil
+}
+
+// ForceCloseChannel describes a channel that pending force close.
+type ForceCloseChannel struct {
+	// PendingChannel contains information about the channel.
+	PendingChannel
+
+	// CloseTxid is the close transaction that confirmed on chain.
+	CloseTxid chainhash.Hash
+}
+
+// WaitingCloseChannel describes a channel that we are waiting to be closed on
+// chain. It contains both parties close txids because either may confirm at
+// this point.
+type WaitingCloseChannel struct {
+	// PendingChannel contains information about the channel.
+	PendingChannel
+
+	// LocalTxid is our close transaction's txid.
+	LocalTxid chainhash.Hash
+
+	// RemoteTxid is the remote party's close txid.
+	RemoteTxid chainhash.Hash
+
+	// RemotePending is the txid of the remote party's pending commit.
+	RemotePending chainhash.Hash
+}
+
+// PendingChannels returns a list of lnd's pending channels.
+func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	resp, err := s.client.PendingChannels(
+		s.adminMac.WithMacaroonAuth(rpcCtx),
+		&lnrpc.PendingChannelsRequest{},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pending := &PendingChannels{
+		PendingForceClose: make([]ForceCloseChannel, len(resp.PendingForceClosingChannels)),
+		PendingOpen:       make([]PendingChannel, len(resp.PendingOpenChannels)),
+		WaitingClose:      make([]WaitingCloseChannel, len(resp.WaitingCloseChannels)),
+	}
+
+	for i, force := range resp.PendingForceClosingChannels {
+		channel, err := NewPendingChannel(force.Channel)
+		if err != nil {
+			return nil, err
+		}
+
+		hash, err := chainhash.NewHashFromStr(force.ClosingTxid)
+		if err != nil {
+			return nil, err
+		}
+
+		pending.PendingForceClose[i] = ForceCloseChannel{
+			PendingChannel: *channel,
+			CloseTxid:      *hash,
+		}
+	}
+
+	for i, waiting := range resp.WaitingCloseChannels {
+		channel, err := NewPendingChannel(waiting.Channel)
+		if err != nil {
+			return nil, err
+		}
+
+		local, err := chainhash.NewHashFromStr(
+			waiting.Commitments.LocalTxid,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		remote, err := chainhash.NewHashFromStr(
+			waiting.Commitments.RemoteTxid,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		remotePending, err := chainhash.NewHashFromStr(
+			waiting.Commitments.RemotePendingTxid,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		closing := WaitingCloseChannel{
+			PendingChannel: *channel,
+			LocalTxid:      *local,
+			RemoteTxid:     *remote,
+			RemotePending:  *remotePending,
+		}
+		pending.WaitingClose[i] = closing
+	}
+
+	for i, open := range resp.PendingOpenChannels {
+		channel, err := NewPendingChannel(open.Channel)
+		if err != nil {
+			return nil, err
+		}
+
+		pending.PendingOpen[i] = *channel
+	}
+
+	return pending, nil
 }
 
 // ClosedChannels returns a list of our closed channels.
@@ -1362,6 +1549,146 @@ func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
 		Hash:  *hash,
 		Index: chanPoint.OutputIndex,
 	}, nil
+}
+
+// CloseChannelUpdate is an interface implemented by channel close updates.
+type CloseChannelUpdate interface {
+	// CloseTxid returns the closing txid of the channel.
+	CloseTxid() chainhash.Hash
+}
+
+// PendingCloseUpdate indicates that our closing transaction has been broadcast.
+type PendingCloseUpdate struct {
+	// CloseTx is the closing transaction id.
+	CloseTx chainhash.Hash
+}
+
+// CloseTxid returns the closing txid of the channel.
+func (p *PendingCloseUpdate) CloseTxid() chainhash.Hash {
+	return p.CloseTx
+}
+
+// ChannelClosedUpdate indicates that our channel close has confirmed on chain.
+type ChannelClosedUpdate struct {
+	// CloseTx is the closing transaction id.
+	CloseTx chainhash.Hash
+}
+
+// CloseTxid returns the closing txid of the channel.
+func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
+	return p.CloseTx
+}
+
+// CloseChannel closes the channel provided, returning a channel that will send
+// a stream of close updates, and an error channel which will receive errors if
+// the channel close stream fails. This function starts a goroutine to consume
+// updates from lnd, which can be cancelled by cancelling the context it was
+// called with. If lnd finishes sending updates for the close (signalled by
+// sending an EOF), we close the updates and error channel to signal that there
+// are no more updates to be sent.
+func (s *lightningClient) CloseChannel(ctx context.Context,
+	channel *wire.OutPoint, force bool) (chan CloseChannelUpdate,
+	chan error, error) {
+
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+
+	stream, err := s.client.CloseChannel(rpcCtx, &lnrpc.CloseChannelRequest{
+		ChannelPoint: &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+				FundingTxidBytes: channel.Hash[:],
+			},
+			OutputIndex: channel.Index,
+		},
+		Force: force,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	updateChan := make(chan CloseChannelUpdate)
+	errChan := make(chan error)
+
+	// sendErr is a helper which sends an error or exits because our caller
+	// context was cancelled.
+	sendErr := func(err error) {
+		select {
+		case errChan <- err:
+		case <-ctx.Done():
+		}
+	}
+
+	// sendUpdate is a helper which sends an update or exits because our
+	// caller context was cancelled.
+	sendUpdate := func(update CloseChannelUpdate) {
+		select {
+		case updateChan <- update:
+		case <-ctx.Done():
+		}
+	}
+
+	// Send updates into our channels from the stream. We will exit if the
+	// server finishes sending updates, or if our context is cancelled.
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			// Wait to receive an update from lnd. If we receive
+			// an EOF from the server, it has finished providing
+			// updates so we close our update and error channels to
+			// signal that it has finished sending updates. Our
+			// stream will error if the caller cancels their context
+			// so this call will not block us.
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				close(updateChan)
+				close(errChan)
+				return
+			} else if err != nil {
+				sendErr(err)
+				return
+			}
+
+			switch update := resp.Update.(type) {
+			case *lnrpc.CloseStatusUpdate_ClosePending:
+				closingHash := update.ClosePending.Txid
+				txid, err := chainhash.NewHash(closingHash)
+				if err != nil {
+					sendErr(err)
+					return
+				}
+
+				closeUpdate := &PendingCloseUpdate{
+					CloseTx: *txid,
+				}
+				sendUpdate(closeUpdate)
+
+			case *lnrpc.CloseStatusUpdate_ChanClose:
+				closingHash := update.ChanClose.ClosingTxid
+				txid, err := chainhash.NewHash(closingHash)
+				if err != nil {
+					sendErr(err)
+					return
+				}
+
+				// Create and send our update. We do not need
+				// to kill our for loop here because we expect
+				// the server to signal that the stream is
+				// complete, which is handled above.
+				closeUpdate := &ChannelClosedUpdate{
+					CloseTx: *txid,
+				}
+				sendUpdate(closeUpdate)
+
+			default:
+				sendErr(fmt.Errorf("unknown channel close "+
+					"update: %T", resp.Update))
+				return
+			}
+		}
+	}()
+
+	return updateChan, errChan, nil
 }
 
 // Connect attempts to connect to a peer at the host specified.

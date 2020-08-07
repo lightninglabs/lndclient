@@ -2,7 +2,12 @@ package lndclient
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 )
 
@@ -28,4 +33,27 @@ func decodeTx(rawTx []byte) (*wire.MsgTx, error) {
 	}
 
 	return &tx, nil
+}
+
+// NewOutpointFromStr creates an outpoint from a string with the format
+// txid:index.
+func NewOutpointFromStr(outpoint string) (*wire.OutPoint, error) {
+	parts := strings.Split(outpoint, ":")
+	if len(parts) != 2 {
+		return nil, errors.New("outpoint should be of the form txid:index")
+	}
+	hash, err := chainhash.NewHashFromStr(parts[0])
+	if err != nil {
+		return nil, err
+	}
+
+	outputIndex, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid output index: %v", err)
+	}
+
+	return &wire.OutPoint{
+		Hash:  *hash,
+		Index: uint32(outputIndex),
+	}, nil
 }
