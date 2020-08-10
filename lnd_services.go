@@ -21,6 +21,10 @@ import (
 var (
 	rpcTimeout = 30 * time.Second
 
+	// chainSyncPollInterval is the interval in which we poll the GetInfo
+	// call to find out if lnd is fully synced to its chain backend.
+	chainSyncPollInterval = 5 * time.Second
+
 	// minimalCompatibleVersion is the minimum version and build tags
 	// required in lnd to get all functionality implemented in lndclient.
 	// Users can provide their own, specific version if needed. If only a
@@ -77,6 +81,19 @@ type LndServicesConfig struct {
 	// Dialer is an optional dial function that can be passed in if the
 	// default lncfg.ClientAddressDialer should not be used.
 	Dialer DialerFunc
+
+	// BlockUntilChainSynced denotes that the NewLndServices function should
+	// block until the lnd node is fully synced to its chain backend. This
+	// can take a long time if lnd was offline for a while or if the initial
+	// block download is still in progress.
+	BlockUntilChainSynced bool
+
+	// ChainSyncCtx is an optional context that can be passed in when
+	// BlockUntilChainSynced is set to true. If a context is passed in and
+	// its Done() channel sends a message, the wait for chain sync is
+	// aborted. This allows a client to still be shut down properly if lnd
+	// takes a long time to sync.
+	ChainSyncCtx context.Context
 }
 
 // DialerFunc is a function that is used as grpc.WithContextDialer().
@@ -250,6 +267,24 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	log.Infof("Using network %v", cfg.Network)
 
+	// If requested in the configuration, we now wait for lnd to fully sync
+	// to its chain backend. We do not add any timeout as it would be hard
+	// to determine a sane value. If the initial block download is still in
+	// progress, this could take hours.
+	if cfg.BlockUntilChainSynced {
+		log.Infof("Waiting for lnd to be fully synced to its chain " +
+			"backend, this might take a while")
+
+		err := services.waitForChainSync(cfg.ChainSyncCtx)
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("error waiting for chain to "+
+				"be synced: %v", err)
+		}
+
+		log.Infof("lnd is now fully synced to its chain backend")
+	}
+
 	return services, nil
 }
 
@@ -259,6 +294,58 @@ func (s *GrpcLndServices) Close() {
 	s.cleanup()
 
 	log.Debugf("Lnd services finished")
+}
+
+// waitForChainSync waits and blocks until the connected lnd node is fully
+// synced to its chain backend. This could theoretically take hours if the
+// initial block download is still in progress.
+func (s *GrpcLndServices) waitForChainSync(ctx context.Context) error {
+	mainCtx := ctx
+	if mainCtx == nil {
+		mainCtx = context.Background()
+	}
+
+	// We spawn a goroutine that polls in regular intervals and reports back
+	// once the chain is ready (or something went wrong). If the chain is
+	// already synced, this should return almost immediately.
+	update := make(chan error)
+	go func() {
+		for {
+			// The GetInfo call can take a while. But if it takes
+			// too long, that can be a sign of something being wrong
+			// with the node. That's why we don't wait any longer
+			// than a few seconds for each individual GetInfo call.
+			ctxt, cancel := context.WithTimeout(mainCtx, rpcTimeout)
+			info, err := s.Client.GetInfo(ctxt)
+			if err != nil {
+				cancel()
+				update <- fmt.Errorf("error in GetInfo call: "+
+					"%v", err)
+				return
+			}
+			cancel()
+
+			// We're done, deliver a nil update by closing the chan.
+			if info.SyncedToChain {
+				close(update)
+				return
+			}
+
+			select {
+			// If we're not yet done, let's now wait a few seconds.
+			case <-time.After(chainSyncPollInterval):
+
+			// If the user cancels the context, we should also
+			// abort the wait.
+			case <-mainCtx.Done():
+				update <- mainCtx.Err()
+				return
+			}
+		}
+	}()
+
+	// Wait for either an error or the nil close signal to arrive.
+	return <-update
 }
 
 // checkLndCompatibility makes sure the connected lnd instance is running on the
