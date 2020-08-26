@@ -61,6 +61,13 @@ type WalletKitClient interface {
 	// Note that this function only looks up transaction ids, and does not
 	// query our wallet for the full set of transactions.
 	ListSweeps(ctx context.Context) ([]string, error)
+
+	// BumpFee attempts to bump the fee of a transaction by spending one of
+	// its outputs at the given fee rate. This essentially results in a
+	// child-pays-for-parent (CPFP) scenario. If the given output has been
+	// used in a previous BumpFee call, then a transaction replacing the
+	// previous is broadcast, resulting in a replace-by-fee (RBF) scenario.
+	BumpFee(context.Context, wire.OutPoint, chainfee.SatPerKWeight) error
 }
 
 type walletKitClient struct {
@@ -345,4 +352,29 @@ func (m *walletKitClient) ListSweeps(ctx context.Context) ([]string, error) {
 	// just get our response to a list of sweeps and return it.
 	sweeps := resp.GetTransactionIds()
 	return sweeps.TransactionIds, nil
+}
+
+// BumpFee attempts to bump the fee of a transaction by spending one of its
+// outputs at the given fee rate. This essentially results in a
+// child-pays-for-parent (CPFP) scenario. If the given output has been used in a
+// previous BumpFee call, then a transaction replacing the previous is
+// broadcast, resulting in a replace-by-fee (RBF) scenario.
+func (m *walletKitClient) BumpFee(ctx context.Context, op wire.OutPoint,
+	feeRate chainfee.SatPerKWeight) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	_, err := m.client.BumpFee(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx),
+		&walletrpc.BumpFeeRequest{
+			Outpoint: &lnrpc.OutPoint{
+				TxidBytes:   op.Hash[:],
+				OutputIndex: op.Index,
+			},
+			SatPerByte: uint32(feeRate.FeePerKVByte() / 1000),
+			Force:      false,
+		},
+	)
+	return err
 }
