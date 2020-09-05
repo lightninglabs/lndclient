@@ -84,6 +84,12 @@ type LightningClient interface {
 	// chanbackup.Multi payload.
 	ChannelBackups(ctx context.Context) ([]byte, error)
 
+	// SubscribeChannelBackups allows a client to subscribe to the
+	// most up to date information concerning the state of all channel
+	// backups.
+	SubscribeChannelBackups(ctx context.Context) (
+		<-chan lnrpc.ChanBackupSnapshot, <-chan error, error)
+
 	// DecodePaymentRequest decodes a payment request.
 	DecodePaymentRequest(ctx context.Context,
 		payReq string) (*PaymentRequest, error)
@@ -1434,6 +1440,45 @@ func (s *lightningClient) ChannelBackups(ctx context.Context) ([]byte, error) {
 	}
 
 	return resp.MultiChanBackup.MultiChanBackup, nil
+}
+
+// SubscribeChannelBackups allows a client to subscribe to the
+// most up to date information concerning the state of all channel
+// backups.
+func (s *lightningClient) SubscribeChannelBackups(ctx context.Context) (
+	<-chan lnrpc.ChanBackupSnapshot, <-chan error, error) {
+
+	backupStream, err := s.client.SubscribeChannelBackups(
+		s.adminMac.WithMacaroonAuth(ctx),
+		&lnrpc.ChannelBackupSubscription{},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	backupUpdates := make(chan lnrpc.ChanBackupSnapshot)
+	streamErr := make(chan error, 1)
+
+	// Backups updates goroutine.
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		for {
+			snapshot, err := backupStream.Recv()
+			if err != nil {
+				streamErr <- err
+				return
+			}
+
+			select {
+			case backupUpdates <- *snapshot:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return backupUpdates, streamErr, nil
 }
 
 // PaymentRequest represents a request for payment from a node.
