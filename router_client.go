@@ -121,6 +121,9 @@ type SendPaymentRequest struct {
 	// CustomRecords holds the custom TLV records that will be added to the
 	// payment.
 	CustomRecords map[uint64][]byte
+
+	// If set, circular payments to self are permitted.
+	AllowSelfPayment bool
 }
 
 // routerClient is a wrapper around the generated routerrpc proxy.
@@ -145,11 +148,12 @@ func (r *routerClient) SendPayment(ctx context.Context,
 
 	rpcCtx := r.routerKitMac.WithMacaroonAuth(ctx)
 	rpcReq := &routerrpc.SendPaymentRequest{
-		FeeLimitSat:     int64(request.MaxFee),
-		PaymentRequest:  request.Invoice,
-		TimeoutSeconds:  int32(request.Timeout.Seconds()),
-		MaxParts:        request.MaxParts,
-		OutgoingChanIds: request.OutgoingChanIds,
+		FeeLimitSat:      int64(request.MaxFee),
+		PaymentRequest:   request.Invoice,
+		TimeoutSeconds:   int32(request.Timeout.Seconds()),
+		MaxParts:         request.MaxParts,
+		OutgoingChanIds:  request.OutgoingChanIds,
+		AllowSelfPayment: request.AllowSelfPayment,
 	}
 	if request.MaxCltv != nil {
 		rpcReq.CltvLimit = *request.MaxCltv
