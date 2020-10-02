@@ -103,6 +103,16 @@ type LightningClient interface {
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
 		force bool) (chan CloseChannelUpdate, chan error, error)
 
+	// UpdateChanPolicy updates the channel policy for the passed chanPoint.
+	// If the chanPoint is nil, then the policy is applied for all existing
+	// channels.
+	UpdateChanPolicy(ctx context.Context, req PolicyUpdateRequest,
+		chanPoint *wire.OutPoint) error
+
+	// GetChanInfo returns the channel info for the passed channel,
+	// including the routing policy for both end.
+	GetChanInfo(ctx context.Context, chanId uint64) (*ChannelEdge, error)
+
 	// Connect attempts to connect to a peer at the host specified.
 	Connect(ctx context.Context, peer route.Vertex, host string) error
 }
@@ -1734,6 +1744,182 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 	}()
 
 	return updateChan, errChan, nil
+}
+
+// PolicyUpdateRequest holds UpdateChanPolicy request data.
+type PolicyUpdateRequest struct {
+	// BaseFeeMsat is the base fee charged regardless of the number of
+	// milli-satoshis sent.
+	BaseFeeMsat int64
+
+	// FeeRate is the effective fee rate in milli-satoshis. The precision of
+	// this value goes up to 6 decimal places, so 1e-6.
+	FeeRate float64
+
+	// TimeLockDelta is the required timelock delta for HTLCs forwarded over
+	// the channel.
+	TimeLockDelta uint32
+
+	// MaxHtlcMsat if set (non zero), holds the maximum HTLC size in
+	// milli-satoshis. If unset, the maximum HTLC will be unchanged.
+	MaxHtlcMsat uint64
+
+	// MinHtlcMsat is the minimum HTLC size in milli-satoshis. Only applied
+	// if MinHtlcMsatSpecified is true.
+	MinHtlcMsat uint64
+
+	// MinHtlcMsatSpecified if true, MinHtlcMsat is applied.
+	MinHtlcMsatSpecified bool
+}
+
+// UpdateChanPolicy updates the channel policy for the passed chanPoint. If
+// the chanPoint is nil, then the policy is applied for all existing channels.
+func (s *lightningClient) UpdateChanPolicy(ctx context.Context,
+	req PolicyUpdateRequest, chanPoint *wire.OutPoint) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	rpcReq := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   req.BaseFeeMsat,
+		FeeRate:       req.FeeRate,
+		TimeLockDelta: req.TimeLockDelta,
+		MaxHtlcMsat:   req.MaxHtlcMsat,
+	}
+
+	if req.MinHtlcMsatSpecified {
+		rpcReq.MinHtlcMsatSpecified = true
+		rpcReq.MinHtlcMsat = req.MinHtlcMsat
+	}
+
+	if chanPoint != nil {
+		rpcChanPoint := &lnrpc.ChannelPoint{
+			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+				FundingTxidBytes: chanPoint.Hash[:],
+			},
+			OutputIndex: uint32(chanPoint.Index),
+		}
+		rpcReq.Scope = &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: rpcChanPoint,
+		}
+	} else {
+		rpcReq.Scope = &lnrpc.PolicyUpdateRequest_Global{
+			Global: true,
+		}
+	}
+
+	_, err := s.client.UpdateChannelPolicy(rpcCtx, rpcReq)
+	return err
+}
+
+// RoutingPolicy holds the edge routing policy for a channel edge.
+type RoutingPolicy struct {
+	// TimeLockDelta is the required timelock delta for HTLCs forwarded
+	// over the channel.
+	TimeLockDelta uint32
+
+	// MinHtlcMsat is the minimum HTLC size in milli-satoshis.
+	MinHtlcMsat int64
+
+	// MaxHtlcMsat the maximum HTLC size in milli-satoshis.
+	MaxHtlcMsat uint64
+
+	// FeeBaseMsat is the base fee charged regardless of the number of
+	// milli-satoshis sent.
+	FeeBaseMsat int64
+
+	// FeeRateMilliMsat is the rate that the node will charge for
+	// HTLCs for each millionth of a satoshi forwarded, in milli-satoshis.
+	FeeRateMilliMsat int64
+
+	// Disabled is true if the edge is disabled.
+	Disabled bool
+
+	// LastUpdate is the last update time for the edge policy.
+	LastUpdate time.Time
+}
+
+// ChannelEdge holds the channel edge information and routing policies.
+type ChannelEdge struct {
+	// The unique channel ID for the channel. The first 3 bytes are the
+	// block height, the next 3 the index within the block, and the last
+	// 2 bytes are the output index for the channel.
+	ChannelId uint64
+
+	// ChannelPoint is the funding outpoint of the channel.
+	ChannelPoint string
+
+	// Capacity is the total channel capacity.
+	Capacity btcutil.Amount
+
+	// Node1 holds the vertex of the first node.
+	Node1 route.Vertex
+
+	// Node2 holds the vertex of the second node.
+	Node2 route.Vertex
+
+	// Node1Policy holds the edge policy for the Node1 -> Node2 edge.
+	Node1Policy *RoutingPolicy
+
+	// Node2Policy holds the edge policy for the Node2 -> Node1 edge.
+	Node2Policy *RoutingPolicy
+}
+
+// getRoutingPolicy converts an lnrpc.RoutingPolicy to RoutingPolicy.
+func getRoutingPolicy(policy *lnrpc.RoutingPolicy) *RoutingPolicy {
+	if policy == nil {
+		return nil
+	}
+
+	return &RoutingPolicy{
+		TimeLockDelta:    policy.TimeLockDelta,
+		MinHtlcMsat:      policy.MinHtlc,
+		MaxHtlcMsat:      policy.MaxHtlcMsat,
+		FeeBaseMsat:      policy.FeeBaseMsat,
+		FeeRateMilliMsat: policy.FeeRateMilliMsat,
+		Disabled:         policy.Disabled,
+		LastUpdate:       time.Unix(int64(policy.LastUpdate), 0),
+	}
+}
+
+// GetChanInfo returns the channel info for the passed channel, including the
+// routing policy for both end.
+func (s *lightningClient) GetChanInfo(ctx context.Context, channelId uint64) (
+	*ChannelEdge, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	rpcRes, err := s.client.GetChanInfo(rpcCtx, &lnrpc.ChanInfoRequest{
+		ChanId: channelId,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	vertex1, err := route.NewVertexFromStr(rpcRes.Node1Pub)
+	if err != nil {
+		return nil, err
+	}
+
+	vertex2, err := route.NewVertexFromStr(rpcRes.Node2Pub)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ChannelEdge{
+		ChannelId:    rpcRes.ChannelId,
+		ChannelPoint: rpcRes.ChanPoint,
+		Capacity:     btcutil.Amount(rpcRes.Capacity),
+		Node1:        vertex1,
+		Node2:        vertex2,
+		Node1Policy:  getRoutingPolicy(rpcRes.Node1Policy),
+		Node2Policy:  getRoutingPolicy(rpcRes.Node2Policy),
+	}, nil
 }
 
 // Connect attempts to connect to a peer at the host specified.
