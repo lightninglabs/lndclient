@@ -49,10 +49,12 @@ type WalletKitClient interface {
 
 	NextAddr(ctx context.Context) (btcutil.Address, error)
 
-	PublishTransaction(ctx context.Context, tx *wire.MsgTx) error
+	PublishTransaction(ctx context.Context, tx *wire.MsgTx,
+		label string) error
 
 	SendOutputs(ctx context.Context, outputs []*wire.TxOut,
-		feeRate chainfee.SatPerKWeight) (*wire.MsgTx, error)
+		feeRate chainfee.SatPerKWeight,
+		label string) (*wire.MsgTx, error)
 
 	EstimateFee(ctx context.Context, confTarget int32) (chainfee.SatPerKWeight,
 		error)
@@ -264,7 +266,7 @@ func (m *walletKitClient) NextAddr(ctx context.Context) (
 }
 
 func (m *walletKitClient) PublishTransaction(ctx context.Context,
-	tx *wire.MsgTx) error {
+	tx *wire.MsgTx, label string) error {
 
 	txHex, err := encodeTx(tx)
 	if err != nil {
@@ -277,14 +279,15 @@ func (m *walletKitClient) PublishTransaction(ctx context.Context,
 	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
 	_, err = m.client.PublishTransaction(rpcCtx, &walletrpc.Transaction{
 		TxHex: txHex,
+		Label: label,
 	})
 
 	return err
 }
 
 func (m *walletKitClient) SendOutputs(ctx context.Context,
-	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight) (
-	*wire.MsgTx, error) {
+	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
+	label string) (*wire.MsgTx, error) {
 
 	rpcOutputs := make([]*signrpc.TxOut, len(outputs))
 	for i, output := range outputs {
@@ -301,6 +304,7 @@ func (m *walletKitClient) SendOutputs(ctx context.Context,
 	resp, err := m.client.SendOutputs(rpcCtx, &walletrpc.SendOutputsRequest{
 		Outputs:  rpcOutputs,
 		SatPerKw: int64(feeRate),
+		Label:    label,
 	})
 	if err != nil {
 		return nil, err
