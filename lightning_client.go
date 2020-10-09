@@ -97,7 +97,8 @@ type LightningClient interface {
 	// OpenChannel opens a channel to the peer provided with the amounts
 	// specified.
 	OpenChannel(ctx context.Context, peer route.Vertex,
-		localSat, pushSat btcutil.Amount) (*wire.OutPoint, error)
+		localSat, pushSat btcutil.Amount, private bool) (
+		*wire.OutPoint, error)
 
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
@@ -1566,7 +1567,7 @@ func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
 
 // OpenChannel opens a channel to the peer provided with the amounts specified.
 func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
-	localSat, pushSat btcutil.Amount) (*wire.OutPoint, error) {
+	localSat, pushSat btcutil.Amount, private bool) (*wire.OutPoint, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	defer cancel()
@@ -1578,6 +1579,7 @@ func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
 			NodePubkey:         peer[:],
 			LocalFundingAmount: int64(localSat),
 			PushSat:            int64(pushSat),
+			Private:            private,
 		},
 	)
 	if err != nil {
