@@ -1012,6 +1012,44 @@ func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels
 	return pending, nil
 }
 
+func getClosedChannel(closeSummary *lnrpc.ChannelCloseSummary) (
+	*ClosedChannel, error) {
+
+	remote, err := route.NewVertexFromStr(closeSummary.RemotePubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	closeType, err := rpcCloseType(closeSummary.CloseType)
+	if err != nil {
+		return nil, err
+	}
+
+	openInitiator, err := getInitiator(closeSummary.OpenInitiator)
+	if err != nil {
+		return nil, err
+	}
+
+	closeInitiator, err := rpcCloseInitiator(
+		closeSummary.CloseInitiator, closeType,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ClosedChannel{
+		ChannelPoint:   closeSummary.ChannelPoint,
+		ChannelID:      closeSummary.ChanId,
+		ClosingTxHash:  closeSummary.ClosingTxHash,
+		CloseType:      closeType,
+		OpenInitiator:  openInitiator,
+		CloseInitiator: closeInitiator,
+		PubKeyBytes:    remote,
+		Capacity:       btcutil.Amount(closeSummary.Capacity),
+		SettledBalance: btcutil.Amount(closeSummary.SettledBalance),
+	}, nil
+}
+
 // ClosedChannels returns a list of our closed channels.
 func (s *lightningClient) ClosedChannels(ctx context.Context) ([]ClosedChannel,
 	error) {
@@ -1029,39 +1067,11 @@ func (s *lightningClient) ClosedChannels(ctx context.Context) ([]ClosedChannel,
 
 	channels := make([]ClosedChannel, len(response.Channels))
 	for i, channel := range response.Channels {
-		remote, err := route.NewVertexFromStr(channel.RemotePubkey)
+		closedChannel, err := getClosedChannel(channel)
 		if err != nil {
 			return nil, err
 		}
-
-		closeType, err := rpcCloseType(channel.CloseType)
-		if err != nil {
-			return nil, err
-		}
-
-		openInitiator, err := getInitiator(channel.OpenInitiator)
-		if err != nil {
-			return nil, err
-		}
-
-		closeInitiator, err := rpcCloseInitiator(
-			channel.CloseInitiator, closeType,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		channels[i] = ClosedChannel{
-			ChannelPoint:   channel.ChannelPoint,
-			ChannelID:      channel.ChanId,
-			ClosingTxHash:  channel.ClosingTxHash,
-			CloseType:      closeType,
-			OpenInitiator:  openInitiator,
-			CloseInitiator: closeInitiator,
-			PubKeyBytes:    remote,
-			Capacity:       btcutil.Amount(channel.Capacity),
-			SettledBalance: btcutil.Amount(channel.SettledBalance),
-		}
+		channels[i] = *closedChannel
 	}
 
 	return channels, nil
