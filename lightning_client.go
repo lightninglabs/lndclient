@@ -90,6 +90,12 @@ type LightningClient interface {
 	SubscribeChannelBackups(ctx context.Context) (
 		<-chan lnrpc.ChanBackupSnapshot, <-chan error, error)
 
+	// SubscribeChannelEvents allows a client to subscribe to updates
+	// relevant to the state of channels. Events include new active
+	// channels, inactive channels, and closed channels.
+	SubscribeChannelEvents(ctx context.Context) (
+		<-chan *ChannelEventUpdate, <-chan error, error)
+
 	// DecodePaymentRequest decodes a payment request.
 	DecodePaymentRequest(ctx context.Context,
 		payReq string) (*PaymentRequest, error)
@@ -173,6 +179,48 @@ type ChannelInfo struct {
 	// Uptime is the total amount of time the peer has been observed as
 	// online over its lifetime.
 	Uptime time.Duration
+}
+
+// ChannelUpdateType encodes the type of update for a channel update event.
+type ChannelUpdateType uint8
+
+const (
+	// PendingOpenChannelUpdate indicates that the channel event holds
+	// information about a recently opened channel still in pending state.
+	PendingOpenChannelUpdate ChannelUpdateType = iota
+
+	// OpenChannelUpdate indicates that the channel event holds information
+	// about a channel that has been opened.
+	OpenChannelUpdate
+
+	// ClosedChannelUpdate indicates that the channel event holds
+	// information about a closed channel.
+	ClosedChannelUpdate
+
+	// ActiveChannelUpdate indicates that the channel event holds
+	// information about a channel that became active.
+	ActiveChannelUpdate
+
+	// InactiveChannelUpdate indicates that the channel event holds
+	// information about a channel that became inactive.
+	InactiveChannelUpdate
+)
+
+// ChannelEventUpdate holds the data fields and type for a particular channel
+// update event.
+type ChannelEventUpdate struct {
+	// UpdateType encodes the update type. Depending on the type other
+	// members may be nil.
+	UpdateType ChannelUpdateType
+
+	// ChannelPoints holds the channel point for the updated channel.
+	ChannelPoint *wire.OutPoint
+
+	// OpenedChannelInfo holds the channel info for a newly opened channel.
+	OpenedChannelInfo *ChannelInfo
+
+	// ClosedChannelInfo holds the channel info for a newly closed channel.
+	ClosedChannelInfo *ClosedChannel
 }
 
 // ClosedChannel represents a channel that has been closed.
@@ -1012,6 +1060,44 @@ func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels
 	return pending, nil
 }
 
+func getClosedChannel(closeSummary *lnrpc.ChannelCloseSummary) (
+	*ClosedChannel, error) {
+
+	remote, err := route.NewVertexFromStr(closeSummary.RemotePubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	closeType, err := rpcCloseType(closeSummary.CloseType)
+	if err != nil {
+		return nil, err
+	}
+
+	openInitiator, err := getInitiator(closeSummary.OpenInitiator)
+	if err != nil {
+		return nil, err
+	}
+
+	closeInitiator, err := rpcCloseInitiator(
+		closeSummary.CloseInitiator, closeType,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ClosedChannel{
+		ChannelPoint:   closeSummary.ChannelPoint,
+		ChannelID:      closeSummary.ChanId,
+		ClosingTxHash:  closeSummary.ClosingTxHash,
+		CloseType:      closeType,
+		OpenInitiator:  openInitiator,
+		CloseInitiator: closeInitiator,
+		PubKeyBytes:    remote,
+		Capacity:       btcutil.Amount(closeSummary.Capacity),
+		SettledBalance: btcutil.Amount(closeSummary.SettledBalance),
+	}, nil
+}
+
 // ClosedChannels returns a list of our closed channels.
 func (s *lightningClient) ClosedChannels(ctx context.Context) ([]ClosedChannel,
 	error) {
@@ -1029,39 +1115,11 @@ func (s *lightningClient) ClosedChannels(ctx context.Context) ([]ClosedChannel,
 
 	channels := make([]ClosedChannel, len(response.Channels))
 	for i, channel := range response.Channels {
-		remote, err := route.NewVertexFromStr(channel.RemotePubkey)
+		closedChannel, err := getClosedChannel(channel)
 		if err != nil {
 			return nil, err
 		}
-
-		closeType, err := rpcCloseType(channel.CloseType)
-		if err != nil {
-			return nil, err
-		}
-
-		openInitiator, err := getInitiator(channel.OpenInitiator)
-		if err != nil {
-			return nil, err
-		}
-
-		closeInitiator, err := rpcCloseInitiator(
-			channel.CloseInitiator, closeType,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		channels[i] = ClosedChannel{
-			ChannelPoint:   channel.ChannelPoint,
-			ChannelID:      channel.ChanId,
-			ClosingTxHash:  channel.ClosingTxHash,
-			CloseType:      closeType,
-			OpenInitiator:  openInitiator,
-			CloseInitiator: closeInitiator,
-			PubKeyBytes:    remote,
-			Capacity:       btcutil.Amount(channel.Capacity),
-			SettledBalance: btcutil.Amount(channel.SettledBalance),
-		}
+		channels[i] = *closedChannel
 	}
 
 	return channels, nil
@@ -1451,6 +1509,153 @@ func (s *lightningClient) ChannelBackups(ctx context.Context) ([]byte, error) {
 	}
 
 	return resp.MultiChanBackup.MultiChanBackup, nil
+}
+
+// getChannelEventUpdate converts an lnrpc.ChannelEventUpdate to the higher
+// level ChannelEventUpdate.
+func getChannelEventUpdate(rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
+	*ChannelEventUpdate, error) {
+
+	// getOutPoint is a helper go convert a hash and output index to
+	// a wire.OutPoint object.
+	getOutPoint := func(txId []byte, idx uint32) (*wire.OutPoint, error) {
+		hash, err := chainhash.NewHash(txId)
+		if err != nil {
+			return nil, err
+		}
+
+		return &wire.OutPoint{
+			Hash:  *hash,
+			Index: idx,
+		}, nil
+	}
+
+	result := &ChannelEventUpdate{}
+	var err error
+
+	switch rpcChannelEventUpdate.Type {
+	case lnrpc.ChannelEventUpdate_PENDING_OPEN_CHANNEL:
+		result.UpdateType = PendingOpenChannelUpdate
+		channelPoint := rpcChannelEventUpdate.GetPendingOpenChannel()
+		result.ChannelPoint, err = getOutPoint(
+			channelPoint.Txid,
+			channelPoint.OutputIndex,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case lnrpc.ChannelEventUpdate_OPEN_CHANNEL:
+		result.UpdateType = OpenChannelUpdate
+		channel := rpcChannelEventUpdate.GetOpenChannel()
+		remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
+		if err != nil {
+			return nil, err
+		}
+
+		result.OpenedChannelInfo = &ChannelInfo{
+			ChannelPoint:  channel.ChannelPoint,
+			Active:        channel.Active,
+			ChannelID:     channel.ChanId,
+			PubKeyBytes:   remoteVertex,
+			Capacity:      btcutil.Amount(channel.Capacity),
+			LocalBalance:  btcutil.Amount(channel.LocalBalance),
+			RemoteBalance: btcutil.Amount(channel.RemoteBalance),
+			Initiator:     channel.Initiator,
+			Private:       channel.Private,
+			LifeTime: time.Second * time.Duration(
+				channel.Lifetime,
+			),
+			Uptime: time.Second * time.Duration(
+				channel.Uptime,
+			),
+		}
+
+	case lnrpc.ChannelEventUpdate_CLOSED_CHANNEL:
+		result.UpdateType = ClosedChannelUpdate
+		closeSummary := rpcChannelEventUpdate.GetClosedChannel()
+		result.ClosedChannelInfo, err = getClosedChannel(closeSummary)
+		if err != nil {
+			return nil, err
+		}
+
+	case lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL:
+		result.UpdateType = ActiveChannelUpdate
+		channelPoint := rpcChannelEventUpdate.GetActiveChannel()
+		fundingTxId := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
+
+		result.ChannelPoint, err = getOutPoint(
+			fundingTxId.FundingTxidBytes,
+			channelPoint.OutputIndex,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL:
+		result.UpdateType = InactiveChannelUpdate
+		channelPoint := rpcChannelEventUpdate.GetInactiveChannel()
+		fundingTxId := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
+
+		result.ChannelPoint, err = getOutPoint(
+			fundingTxId.FundingTxidBytes,
+			channelPoint.OutputIndex,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	default:
+		return nil, fmt.Errorf("unhandled update type: %v",
+			rpcChannelEventUpdate.Type.String())
+	}
+
+	return result, nil
+}
+
+// SubscribeChannelEvents allows a client to subscribe to updates relevant to
+// the state of channels. Events include new active channels, inactive channels,
+// and closed channels.
+func (s *lightningClient) SubscribeChannelEvents(ctx context.Context) (
+	<-chan *ChannelEventUpdate, <-chan error, error) {
+
+	updateStream, err := s.client.SubscribeChannelEvents(
+		s.adminMac.WithMacaroonAuth(ctx),
+		&lnrpc.ChannelEventSubscription{},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	updates := make(chan *ChannelEventUpdate)
+	errChan := make(chan error, 1)
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			rpcUpdate, err := updateStream.Recv()
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			update, err := getChannelEventUpdate(rpcUpdate)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			select {
+			case updates <- update:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return updates, errChan, nil
 }
 
 // SubscribeChannelBackups allows a client to subscribe to the
