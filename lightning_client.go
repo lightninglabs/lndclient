@@ -122,6 +122,15 @@ type LightningClient interface {
 
 	// Connect attempts to connect to a peer at the host specified.
 	Connect(ctx context.Context, peer route.Vertex, host string) error
+
+	// SendCoins sends the passed amount of (or all) coins to the passed
+	// address. Either amount or sendAll must be specified, while
+	// confTarget, satsPerByte are optional and may be set to zero in which
+	// case automatic conf target and fee will be used. Returns the tx id
+	// upon success.
+	SendCoins(ctx context.Context, addr btcutil.Address,
+		amount btcutil.Amount, sendAll bool, confTarget int32,
+		satsPerByte int64, label string) (string, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -2146,4 +2155,34 @@ func (s *lightningClient) Connect(ctx context.Context, peer route.Vertex,
 	})
 
 	return err
+}
+
+// SendCoins sends the passed amount of (or all) coins to the passed address.
+// Either amount or sendAll must be specified, while confTarget, satsPerByte are
+// optional and may be set to zero in which case automatic conf target and fee
+// will be used. Returns the tx id upon success.
+func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
+	amount btcutil.Amount, sendAll bool, confTarget int32,
+	satsPerByte int64, label string) (string, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	req := &lnrpc.SendCoinsRequest{
+		Addr:       addr.String(),
+		Amount:     int64(amount),
+		TargetConf: confTarget,
+		SatPerByte: satsPerByte,
+		SendAll:    sendAll,
+		Label:      label,
+	}
+
+	resp, err := s.client.SendCoins(rpcCtx, req)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Txid, nil
 }
