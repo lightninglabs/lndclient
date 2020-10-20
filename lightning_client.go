@@ -732,6 +732,28 @@ type Invoice struct {
 
 	// IsKeysend indicates whether the invoice was a spontaneous payment.
 	IsKeysend bool
+
+	// Htlcs is the set of htlcs that the invoice was settled with.
+	Htlcs []InvoiceHtlc
+}
+
+// InvoiceHtlc represents a htlc that was used to pay an invoice.
+type InvoiceHtlc struct {
+	// ChannelID is the short channel ID of the incoming channel that the
+	// htlc arrived on.
+	ChannelID lnwire.ShortChannelID
+
+	// Amount is the amount in millisatoshis that was paid with this htlc.
+	// Note that this may not be the full amount because invoices can be
+	// paid with multiple hltcs.
+	Amount lnwire.MilliSatoshi
+
+	// AcceptTime is the time that the htlc arrived at our node.
+	AcceptTime time.Time
+
+	// ResolveTime is the time that the htlc was resolved (settled or failed
+	// back).
+	ResolveTime time.Time
 }
 
 // LookupInvoice looks up an invoice in lnd, it will error if the invoice is
@@ -776,6 +798,24 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 		AmountPaid:     lnwire.MilliSatoshi(resp.AmtPaidMsat),
 		CreationDate:   time.Unix(resp.CreationDate, 0),
 		IsKeysend:      resp.IsKeysend,
+		Htlcs:          make([]InvoiceHtlc, len(resp.Htlcs)),
+	}
+
+	for i, htlc := range resp.Htlcs {
+		invoiceHtlc := InvoiceHtlc{
+			ChannelID: lnwire.NewShortChanIDFromInt(htlc.ChanId),
+			Amount:    lnwire.MilliSatoshi(htlc.AmtMsat),
+		}
+
+		if htlc.AcceptTime != 0 {
+			invoiceHtlc.AcceptTime = time.Unix(htlc.AcceptTime, 0)
+		}
+
+		if htlc.ResolveTime != 0 {
+			invoiceHtlc.ResolveTime = time.Unix(htlc.ResolveTime, 0)
+		}
+
+		invoice.Htlcs[i] = invoiceHtlc
 	}
 
 	switch resp.State {
