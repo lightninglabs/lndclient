@@ -108,7 +108,8 @@ type LightningClient interface {
 
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
-		force bool) (chan CloseChannelUpdate, chan error, error)
+		force bool, confTarget int32) (chan CloseChannelUpdate,
+		chan error, error)
 
 	// UpdateChanPolicy updates the channel policy for the passed chanPoint.
 	// If the chanPoint is nil, then the policy is applied for all existing
@@ -1910,8 +1911,8 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 // sending an EOF), we close the updates and error channel to signal that there
 // are no more updates to be sent.
 func (s *lightningClient) CloseChannel(ctx context.Context,
-	channel *wire.OutPoint, force bool) (chan CloseChannelUpdate,
-	chan error, error) {
+	channel *wire.OutPoint, force bool,
+	confTarget int32) (chan CloseChannelUpdate, chan error, error) {
 
 	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
 
@@ -1922,7 +1923,8 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 			},
 			OutputIndex: channel.Index,
 		},
-		Force: force,
+		TargetConf: confTarget,
+		Force:      force,
 	})
 	if err != nil {
 		return nil, nil, err
