@@ -738,6 +738,12 @@ type Invoice struct {
 
 	// Htlcs is the set of htlcs that the invoice was settled with.
 	Htlcs []InvoiceHtlc
+
+	// AddIndex is the index at which the invoice was added.
+	AddIndex uint64
+
+	// SettleIndex is the index at which the invoice was settled.
+	SettleIndex uint64
 }
 
 // InvoiceHtlc represents a htlc that was used to pay an invoice.
@@ -802,6 +808,8 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 		CreationDate:   time.Unix(resp.CreationDate, 0),
 		IsKeysend:      resp.IsKeysend,
 		Htlcs:          make([]InvoiceHtlc, len(resp.Htlcs)),
+		AddIndex:       resp.AddIndex,
+		SettleIndex:    resp.SettleIndex,
 	}
 
 	for i, htlc := range resp.Htlcs {
