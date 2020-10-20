@@ -248,6 +248,9 @@ type ClosedChannel struct {
 	// CloseType is the type of channel closure.
 	CloseType CloseType
 
+	// CloseHeight is the height that the channel was closed at.
+	CloseHeight uint32
+
 	// OpenInitiator is true if we opened the channel. This value is not
 	// always available (older channels do not have it).
 	OpenInitiator Initiator
@@ -1139,6 +1142,7 @@ func getClosedChannel(closeSummary *lnrpc.ChannelCloseSummary) (
 		ChannelID:      closeSummary.ChanId,
 		ClosingTxHash:  closeSummary.ClosingTxHash,
 		CloseType:      closeType,
+		CloseHeight:    closeSummary.CloseHeight,
 		OpenInitiator:  openInitiator,
 		CloseInitiator: closeInitiator,
 		PubKeyBytes:    remote,
