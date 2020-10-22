@@ -108,7 +108,8 @@ type LightningClient interface {
 
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
-		force bool) (chan CloseChannelUpdate, chan error, error)
+		force bool, confTarget int32) (chan CloseChannelUpdate,
+		chan error, error)
 
 	// UpdateChanPolicy updates the channel policy for the passed chanPoint.
 	// If the chanPoint is nil, then the policy is applied for all existing
@@ -247,6 +248,9 @@ type ClosedChannel struct {
 
 	// CloseType is the type of channel closure.
 	CloseType CloseType
+
+	// CloseHeight is the height that the channel was closed at.
+	CloseHeight uint32
 
 	// OpenInitiator is true if we opened the channel. This value is not
 	// always available (older channels do not have it).
@@ -732,6 +736,34 @@ type Invoice struct {
 
 	// IsKeysend indicates whether the invoice was a spontaneous payment.
 	IsKeysend bool
+
+	// Htlcs is the set of htlcs that the invoice was settled with.
+	Htlcs []InvoiceHtlc
+
+	// AddIndex is the index at which the invoice was added.
+	AddIndex uint64
+
+	// SettleIndex is the index at which the invoice was settled.
+	SettleIndex uint64
+}
+
+// InvoiceHtlc represents a htlc that was used to pay an invoice.
+type InvoiceHtlc struct {
+	// ChannelID is the short channel ID of the incoming channel that the
+	// htlc arrived on.
+	ChannelID lnwire.ShortChannelID
+
+	// Amount is the amount in millisatoshis that was paid with this htlc.
+	// Note that this may not be the full amount because invoices can be
+	// paid with multiple hltcs.
+	Amount lnwire.MilliSatoshi
+
+	// AcceptTime is the time that the htlc arrived at our node.
+	AcceptTime time.Time
+
+	// ResolveTime is the time that the htlc was resolved (settled or failed
+	// back).
+	ResolveTime time.Time
 }
 
 // LookupInvoice looks up an invoice in lnd, it will error if the invoice is
@@ -776,6 +808,26 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 		AmountPaid:     lnwire.MilliSatoshi(resp.AmtPaidMsat),
 		CreationDate:   time.Unix(resp.CreationDate, 0),
 		IsKeysend:      resp.IsKeysend,
+		Htlcs:          make([]InvoiceHtlc, len(resp.Htlcs)),
+		AddIndex:       resp.AddIndex,
+		SettleIndex:    resp.SettleIndex,
+	}
+
+	for i, htlc := range resp.Htlcs {
+		invoiceHtlc := InvoiceHtlc{
+			ChannelID: lnwire.NewShortChanIDFromInt(htlc.ChanId),
+			Amount:    lnwire.MilliSatoshi(htlc.AmtMsat),
+		}
+
+		if htlc.AcceptTime != 0 {
+			invoiceHtlc.AcceptTime = time.Unix(htlc.AcceptTime, 0)
+		}
+
+		if htlc.ResolveTime != 0 {
+			invoiceHtlc.ResolveTime = time.Unix(htlc.ResolveTime, 0)
+		}
+
+		invoice.Htlcs[i] = invoiceHtlc
 	}
 
 	switch resp.State {
@@ -1099,6 +1151,7 @@ func getClosedChannel(closeSummary *lnrpc.ChannelCloseSummary) (
 		ChannelID:      closeSummary.ChanId,
 		ClosingTxHash:  closeSummary.ClosingTxHash,
 		CloseType:      closeType,
+		CloseHeight:    closeSummary.CloseHeight,
 		OpenInitiator:  openInitiator,
 		CloseInitiator: closeInitiator,
 		PubKeyBytes:    remote,
@@ -1858,8 +1911,8 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 // sending an EOF), we close the updates and error channel to signal that there
 // are no more updates to be sent.
 func (s *lightningClient) CloseChannel(ctx context.Context,
-	channel *wire.OutPoint, force bool) (chan CloseChannelUpdate,
-	chan error, error) {
+	channel *wire.OutPoint, force bool,
+	confTarget int32) (chan CloseChannelUpdate, chan error, error) {
 
 	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
 
@@ -1870,7 +1923,8 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 			},
 			OutputIndex: channel.Index,
 		},
-		Force: force,
+		TargetConf: confTarget,
+		Force:      force,
 	})
 	if err != nil {
 		return nil, nil, err
