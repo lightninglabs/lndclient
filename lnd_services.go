@@ -67,7 +67,12 @@ type LndServicesConfig struct {
 	Network Network
 
 	// MacaroonDir is the directory where all lnd macaroons can be found.
+	// Either this or CustomMacaroonPath can be specified but not both.
 	MacaroonDir string
+
+	// CustomMacaroonPath is the full path to a custom macaroon file. Either
+	// this or MacaroonDir can be specified but not both.
+	CustomMacaroonPath string
 
 	// TLSPath is the path to lnd's TLS certificate file.
 	TLSPath string
@@ -138,6 +143,14 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		cfg.CheckVersion = minimalCompatibleVersion
 	}
 
+	// We don't allow setting both the macaroon directory and the custom
+	// macaroon path. If both are empty, that's fine, the default behavior
+	// is to use lnd's default directory to try to locate the macaroons.
+	if cfg.MacaroonDir != "" && cfg.CustomMacaroonPath != "" {
+		return nil, fmt.Errorf("must set either MacaroonDir or " +
+			"CustomMacaroonPath but not both")
+	}
+
 	// Based on the network, if the macaroon directory isn't set, then
 	// we'll use the expected default locations.
 	macaroonDir := cfg.MacaroonDir
@@ -193,8 +206,8 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// macaroon. We don't use the pouch yet because if not all subservers
 	// are enabled, then not all macaroons might be there and the user would
 	// get a more cryptic error message.
-	readonlyMac, err := newSerializedMacaroon(
-		filepath.Join(macaroonDir, defaultReadonlyFilename),
+	readonlyMac, err := loadMacaroon(
+		macaroonDir, defaultReadonlyFilename, cfg.CustomMacaroonPath,
 	)
 	if err != nil {
 		return nil, err
@@ -208,7 +221,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	// Now that we've ensured our macaroon directory is set properly, we
 	// can retrieve our full macaroon pouch from the directory.
-	macaroons, err := newMacaroonPouch(macaroonDir)
+	macaroons, err := newMacaroonPouch(macaroonDir, cfg.CustomMacaroonPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to obtain macaroons: %v", err)
 	}

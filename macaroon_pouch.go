@@ -9,6 +9,24 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+// loadMacaroon tries to load a macaroon file either from the default macaroon
+// dir and the default filename or, if specified, from the custom macaroon path
+// that overwrites the former two parameters.
+func loadMacaroon(defaultMacDir, defaultMacFileName,
+	customMacPath string) (serializedMacaroon, error) {
+
+	// If a custom macaroon path is set, we ignore the macaroon dir and
+	// default filename and always just load the custom macaroon, assuming
+	// it contains all permissions needed to use the subservers.
+	if customMacPath != "" {
+		return newSerializedMacaroon(customMacPath)
+	}
+
+	return newSerializedMacaroon(filepath.Join(
+		defaultMacDir, defaultMacFileName,
+	))
+}
+
 // serializedMacaroon is a type that represents a hex-encoded macaroon. We'll
 // use this primarily vs the raw binary format as the gRPC metadata feature
 // requires that all keys and values be strings.
@@ -60,55 +78,78 @@ type macaroonPouch struct {
 
 // newMacaroonPouch returns a new instance of a fully populated macaroonPouch
 // given the directory where all the macaroons are stored.
-func newMacaroonPouch(macaroonDir string) (*macaroonPouch, error) {
-	m := &macaroonPouch{}
+func newMacaroonPouch(macaroonDir, customMacPath string) (*macaroonPouch,
+	error) {
 
-	var err error
+	// If a custom macaroon is specified, we assume it contains all
+	// permissions needed for the different subservers to function and we
+	// use it for all of them.
+	if customMacPath != "" {
+		mac, err := loadMacaroon("", "", customMacPath)
+		if err != nil {
+			return nil, err
+		}
 
-	m.invoiceMac, err = newSerializedMacaroon(
-		filepath.Join(macaroonDir, defaultInvoiceMacaroonFilename),
+		return &macaroonPouch{
+			invoiceMac:   mac,
+			chainMac:     mac,
+			signerMac:    mac,
+			walletKitMac: mac,
+			routerMac:    mac,
+			adminMac:     mac,
+			readonlyMac:  mac,
+		}, nil
+	}
+
+	var (
+		m   = &macaroonPouch{}
+		err error
+	)
+
+	m.invoiceMac, err = loadMacaroon(
+		macaroonDir, defaultInvoiceMacaroonFilename, customMacPath,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	m.chainMac, err = newSerializedMacaroon(
-		filepath.Join(macaroonDir, defaultChainMacaroonFilename),
+	m.chainMac, err = loadMacaroon(
+		macaroonDir, defaultChainMacaroonFilename, customMacPath,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	m.signerMac, err = newSerializedMacaroon(
-		filepath.Join(macaroonDir, defaultSignerFilename),
+	m.signerMac, err = loadMacaroon(
+		macaroonDir, defaultSignerFilename, customMacPath,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	m.walletKitMac, err = newSerializedMacaroon(
-		filepath.Join(macaroonDir, defaultWalletKitMacaroonFilename),
+	m.walletKitMac, err = loadMacaroon(
+		macaroonDir, defaultWalletKitMacaroonFilename, customMacPath,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	m.routerMac, err = newSerializedMacaroon(
-		filepath.Join(macaroonDir, defaultRouterMacaroonFilename),
+	m.routerMac, err = loadMacaroon(
+		macaroonDir, defaultRouterMacaroonFilename, customMacPath,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	m.adminMac, err = newSerializedMacaroon(
-		filepath.Join(macaroonDir, defaultAdminMacaroonFilename),
+	m.adminMac, err = loadMacaroon(
+		macaroonDir, defaultAdminMacaroonFilename, customMacPath,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	m.readonlyMac, err = newSerializedMacaroon(
-		filepath.Join(macaroonDir, defaultReadonlyFilename),
+	m.readonlyMac, err = loadMacaroon(
+		macaroonDir, defaultReadonlyFilename, customMacPath,
 	)
 	if err != nil {
 		return nil, err
