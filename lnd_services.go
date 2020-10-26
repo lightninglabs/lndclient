@@ -32,12 +32,10 @@ var (
 	// tags can be adjusted accordingly. This default will be used as a fall
 	// back version if none is specified in the configuration.
 	minimalCompatibleVersion = &verrpc.Version{
-		AppMajor: 0,
-		AppMinor: 11,
-		AppPatch: 0,
-		BuildTags: []string{
-			"signrpc", "walletrpc", "chainrpc", "invoicesrpc",
-		},
+		AppMajor:  0,
+		AppMinor:  11,
+		AppPatch:  0,
+		BuildTags: DefaultBuildTags,
 	}
 
 	// ErrVersionCheckNotImplemented is the error that is returned if the
@@ -54,6 +52,12 @@ var (
 	// connected lnd instance does not have all built tags activated that
 	// are required.
 	ErrBuildTagsMissing = errors.New("build tags missing")
+
+	// DefaultBuildTags is the list of all subserver build tags that are
+	// required for lndclient to work.
+	DefaultBuildTags = []string{
+		"signrpc", "walletrpc", "chainrpc", "invoicesrpc",
+	}
 )
 
 // LndServicesConfig holds all configuration settings that are needed to connect
