@@ -8,6 +8,7 @@ require (
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/btcsuite/btcwallet/wtxmgr v1.2.0
 	github.com/lightningnetwork/lnd v0.11.1-beta
+	github.com/stretchr/testify v1.5.1
 	google.golang.org/grpc v1.24.0
 	gopkg.in/macaroon.v2 v2.1.0
 )
