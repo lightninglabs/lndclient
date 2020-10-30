@@ -108,8 +108,8 @@ type LightningClient interface {
 
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
-		force bool, confTarget int32) (chan CloseChannelUpdate,
-		chan error, error)
+		force bool, confTarget int32, deliveryAddr btcutil.Address) (
+		chan CloseChannelUpdate, chan error, error)
 
 	// UpdateChanPolicy updates the channel policy for the passed chanPoint.
 	// If the chanPoint is nil, then the policy is applied for all existing
@@ -1934,12 +1934,22 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 // updates from lnd, which can be cancelled by cancelling the context it was
 // called with. If lnd finishes sending updates for the close (signalled by
 // sending an EOF), we close the updates and error channel to signal that there
-// are no more updates to be sent.
+// are no more updates to be sent. It takes an optional delivery address that
+// funds will be paid out to in the case where we cooperative close a channel
+// that *does not* have an upfront shutdown addresss set.
 func (s *lightningClient) CloseChannel(ctx context.Context,
-	channel *wire.OutPoint, force bool,
-	confTarget int32) (chan CloseChannelUpdate, chan error, error) {
+	channel *wire.OutPoint, force bool, confTarget int32,
+	deliveryAddr btcutil.Address) (chan CloseChannelUpdate, chan error,
+	error) {
 
-	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+	var (
+		rpcCtx  = s.adminMac.WithMacaroonAuth(ctx)
+		addrStr string
+	)
+
+	if deliveryAddr != nil {
+		addrStr = deliveryAddr.String()
+	}
 
 	stream, err := s.client.CloseChannel(rpcCtx, &lnrpc.CloseChannelRequest{
 		ChannelPoint: &lnrpc.ChannelPoint{
@@ -1948,8 +1958,9 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 			},
 			OutputIndex: channel.Index,
 		},
-		TargetConf: confTarget,
-		Force:      force,
+		TargetConf:      confTarget,
+		Force:           force,
+		DeliveryAddress: addrStr,
 	})
 	if err != nil {
 		return nil, nil, err
