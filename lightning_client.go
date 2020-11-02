@@ -108,8 +108,8 @@ type LightningClient interface {
 
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
-		force bool, confTarget int32) (chan CloseChannelUpdate,
-		chan error, error)
+		force bool, confTarget int32, deliveryAddr btcutil.Address) (
+		chan CloseChannelUpdate, chan error, error)
 
 	// UpdateChanPolicy updates the channel policy for the passed chanPoint.
 	// If the chanPoint is nil, then the policy is applied for all existing
@@ -120,6 +120,9 @@ type LightningClient interface {
 	// GetChanInfo returns the channel info for the passed channel,
 	// including the routing policy for both end.
 	GetChanInfo(ctx context.Context, chanId uint64) (*ChannelEdge, error)
+
+	// ListPeers gets a list the peers we are currently connected to.
+	ListPeers(ctx context.Context) ([]Peer, error)
 
 	// Connect attempts to connect to a peer at the host specified.
 	Connect(ctx context.Context, peer route.Vertex, host string) error
@@ -395,6 +398,28 @@ type Transaction struct {
 
 	// Label is an optional label set for on chain transactions.
 	Label string
+}
+
+// Peer contains information about a peer we are connected to.
+type Peer struct {
+	// Pubkey is the peer's pubkey.
+	Pubkey route.Vertex
+
+	// Address is the host:port of the peer.
+	Address string
+
+	// BytesSent is the total number of bytes we have sent the peer.
+	BytesSent uint64
+
+	// BytesReceived is the total number of bytes we have received from
+	// the peer.
+	BytesReceived uint64
+
+	// Inbound indicates whether the remote peer initiated the connection.
+	Inbound bool
+
+	// PingTime is the estimated round trip time to this peer.
+	PingTime time.Duration
 }
 
 var (
@@ -1909,12 +1934,22 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 // updates from lnd, which can be cancelled by cancelling the context it was
 // called with. If lnd finishes sending updates for the close (signalled by
 // sending an EOF), we close the updates and error channel to signal that there
-// are no more updates to be sent.
+// are no more updates to be sent. It takes an optional delivery address that
+// funds will be paid out to in the case where we cooperative close a channel
+// that *does not* have an upfront shutdown addresss set.
 func (s *lightningClient) CloseChannel(ctx context.Context,
-	channel *wire.OutPoint, force bool,
-	confTarget int32) (chan CloseChannelUpdate, chan error, error) {
+	channel *wire.OutPoint, force bool, confTarget int32,
+	deliveryAddr btcutil.Address) (chan CloseChannelUpdate, chan error,
+	error) {
 
-	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+	var (
+		rpcCtx  = s.adminMac.WithMacaroonAuth(ctx)
+		addrStr string
+	)
+
+	if deliveryAddr != nil {
+		addrStr = deliveryAddr.String()
+	}
 
 	stream, err := s.client.CloseChannel(rpcCtx, &lnrpc.CloseChannelRequest{
 		ChannelPoint: &lnrpc.ChannelPoint{
@@ -1923,8 +1958,9 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 			},
 			OutputIndex: channel.Index,
 		},
-		TargetConf: confTarget,
-		Force:      force,
+		TargetConf:      confTarget,
+		Force:           force,
+		DeliveryAddress: addrStr,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -2190,6 +2226,42 @@ func (s *lightningClient) GetChanInfo(ctx context.Context, channelId uint64) (
 		Node1Policy:  getRoutingPolicy(rpcRes.Node1Policy),
 		Node2Policy:  getRoutingPolicy(rpcRes.Node2Policy),
 	}, nil
+}
+
+// ListPeers gets a list of pubkeys of the peers we are currently connected to.
+func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.ListPeers(rpcCtx, &lnrpc.ListPeersRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	peers := make([]Peer, len(resp.Peers))
+	for i, peer := range resp.Peers {
+		pk, err := route.NewVertexFromStr(peer.PubKey)
+		if err != nil {
+			return nil, err
+		}
+
+		pingTime := time.Microsecond * time.Duration(peer.PingTime)
+
+		peers[i] = Peer{
+			Pubkey:        pk,
+			Address:       peer.Address,
+			BytesSent:     peer.BytesSent,
+			BytesReceived: peer.BytesRecv,
+			Inbound:       peer.Inbound,
+			PingTime:      pingTime,
+		}
+	}
+
+	return peers, err
 }
 
 // Connect attempts to connect to a peer at the host specified.
