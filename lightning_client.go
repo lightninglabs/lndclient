@@ -38,7 +38,8 @@ type LightningClient interface {
 	EstimateFeeToP2WSH(ctx context.Context, amt btcutil.Amount,
 		confTarget int32) (btcutil.Amount, error)
 
-	ConfirmedWalletBalance(ctx context.Context) (btcutil.Amount, error)
+	// WalletBalance returns a summary of the node's wallet balance.
+	WalletBalance(ctx context.Context) (*WalletBalance, error)
 
 	AddInvoice(ctx context.Context, in *invoicesrpc.AddInvoiceData) (
 		lntypes.Hash, string, error)
@@ -694,8 +695,9 @@ func (s *lightningClient) WaitForFinished() {
 	s.wg.Wait()
 }
 
-func (s *lightningClient) ConfirmedWalletBalance(ctx context.Context) (
-	btcutil.Amount, error) {
+// WalletBalance returns a summary of the node's wallet balance.
+func (s *lightningClient) WalletBalance(ctx context.Context) (
+	*WalletBalance, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	defer cancel()
@@ -703,10 +705,13 @@ func (s *lightningClient) ConfirmedWalletBalance(ctx context.Context) (
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
 	resp, err := s.client.WalletBalance(rpcCtx, &lnrpc.WalletBalanceRequest{})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return btcutil.Amount(resp.ConfirmedBalance), nil
+	return &WalletBalance{
+		Confirmed:   btcutil.Amount(resp.ConfirmedBalance),
+		Unconfirmed: btcutil.Amount(resp.UnconfirmedBalance),
+	}, nil
 }
 
 func (s *lightningClient) GetInfo(ctx context.Context) (*Info, error) {
@@ -942,6 +947,15 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 	}
 
 	return hash, resp.PaymentRequest, nil
+}
+
+// WalletBalance describes our wallet's current balance.
+type WalletBalance struct {
+	// Confirmed is our total confirmed balance.
+	Confirmed btcutil.Amount
+
+	// Unconfirmed is our total unconfirmed balance.
+	Unconfirmed btcutil.Amount
 }
 
 // Invoice represents an invoice in lnd.
