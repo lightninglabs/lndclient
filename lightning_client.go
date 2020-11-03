@@ -135,6 +135,9 @@ type LightningClient interface {
 	SendCoins(ctx context.Context, addr btcutil.Address,
 		amount btcutil.Amount, sendAll bool, confTarget int32,
 		satsPerByte int64, label string) (string, error)
+
+	// ChannelBalance returns a summary of our channel balances.
+	ChannelBalance(ctx context.Context) (*ChannelBalance, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -444,6 +447,15 @@ type Peer struct {
 
 	// PingTime is the estimated round trip time to this peer.
 	PingTime time.Duration
+}
+
+// ChannelBalance contains information about our channel balances.
+type ChannelBalance struct {
+	// Balance is the sum of all open channels balances denominated.
+	Balance btcutil.Amount
+
+	// PendingBalance is the sum of all pending channel balances.
+	PendingBalance btcutil.Amount
 }
 
 var (
@@ -2340,4 +2352,26 @@ func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
 	}
 
 	return resp.Txid, nil
+}
+
+// ChannelBalance returns a summary of our channel balances.
+func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.ChannelBalance(
+		rpcCtx, &lnrpc.ChannelBalanceRequest{},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ChannelBalance{
+		Balance:        btcutil.Amount(resp.Balance),
+		PendingBalance: btcutil.Amount(resp.PendingOpenBalance),
+	}, nil
 }
