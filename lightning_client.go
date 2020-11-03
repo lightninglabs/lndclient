@@ -139,11 +139,23 @@ type LightningClient interface {
 
 // Info contains info about the connected lnd node.
 type Info struct {
-	BlockHeight    uint32
+	// Version is the version that lnd is running.
+	Version string
+
+	// BlockHeight is the best block height that lnd has knowledge of.
+	BlockHeight uint32
+
+	// IdentityPubkey is our node's pubkey.
 	IdentityPubkey [33]byte
-	Alias          string
-	Network        string
-	Uris           []string
+
+	// Alias is our node's alias.
+	Alias string
+
+	// Network is the network we are currently operating on.
+	Network string
+
+	// Uris is the set of our node's advertised uris.
+	Uris []string
 
 	// SyncedToChain is true if the wallet's view is synced to the main
 	// chain.
@@ -152,6 +164,18 @@ type Info struct {
 	// SyncedToGraph is true if we consider ourselves to be synced with the
 	// public channel graph.
 	SyncedToGraph bool
+
+	// BestHeaderTimeStamp is the best block timestamp known to the wallet.
+	BestHeaderTimeStamp time.Time
+
+	// ActiveChannels is the number of active channels we have.
+	ActiveChannels uint32
+
+	// InactiveChannels is the number of inactive channels we have.
+	InactiveChannels uint32
+
+	// PendingChannels is the number of pending channels we have.
+	PendingChannels uint32
 }
 
 // ChannelInfo stores unpacked per-channel info.
@@ -517,13 +541,18 @@ func (s *lightningClient) GetInfo(ctx context.Context) (*Info, error) {
 	copy(pubKeyArray[:], pubKey)
 
 	return &Info{
-		BlockHeight:    resp.BlockHeight,
-		IdentityPubkey: pubKeyArray,
-		Alias:          resp.Alias,
-		Network:        resp.Chains[0].Network,
-		Uris:           resp.Uris,
-		SyncedToChain:  resp.SyncedToChain,
-		SyncedToGraph:  resp.SyncedToGraph,
+		Version:             resp.Version,
+		BlockHeight:         resp.BlockHeight,
+		IdentityPubkey:      pubKeyArray,
+		Alias:               resp.Alias,
+		Network:             resp.Chains[0].Network,
+		Uris:                resp.Uris,
+		SyncedToChain:       resp.SyncedToChain,
+		SyncedToGraph:       resp.SyncedToGraph,
+		BestHeaderTimeStamp: time.Unix(resp.BestHeaderTimestamp, 0),
+		ActiveChannels:      resp.NumActiveChannels,
+		InactiveChannels:    resp.NumInactiveChannels,
+		PendingChannels:     resp.NumPendingChannels,
 	}, nil
 }
 
