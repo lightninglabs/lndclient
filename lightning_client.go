@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -206,6 +207,10 @@ type ChannelInfo struct {
 	// RemoteBalance is the counterparty's current balance in this channel.
 	RemoteBalance btcutil.Amount
 
+	// UnsettledBalance is the total amount on this channel that is
+	// unsettled.
+	UnsettledBalance btcutil.Amount
+
 	// Initiator indicates whether we opened the channel or not.
 	Initiator bool
 
@@ -219,6 +224,119 @@ type ChannelInfo struct {
 	// Uptime is the total amount of time the peer has been observed as
 	// online over its lifetime.
 	Uptime time.Duration
+
+	// TotalSent is the total amount sent over this channel for our own
+	// payments.
+	TotalSent btcutil.Amount
+
+	// TotalReceived is the total amount received over this channel for our
+	// own receipts.
+	TotalReceived btcutil.Amount
+
+	// NumUpdates is the number of updates we have had on this channel.
+	NumUpdates uint64
+
+	// NumPendingHtlcs is the count of pending htlcs on this channel.
+	NumPendingHtlcs int
+
+	// CSVDelay is the csv delay for our funds.
+	CSVDelay uint64
+
+	// FeePerKw is the current fee per kweight of the commit fee.
+	FeePerKw chainfee.SatPerKWeight
+
+	// CommitWeight is the weight of the commit.
+	CommitWeight int64
+
+	// CommitFee is the current commitment's fee.
+	CommitFee btcutil.Amount
+
+	// LocalConstraints is the set of constraints for the local node.
+	LocalConstraints *ChannelConstraints
+
+	// RemoteConstraints is the set of constraints for the remote node.
+	RemoteConstraints *ChannelConstraints
+}
+
+func newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo, error) {
+	remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ChannelInfo{
+		ChannelPoint:     channel.ChannelPoint,
+		Active:           channel.Active,
+		ChannelID:        channel.ChanId,
+		PubKeyBytes:      remoteVertex,
+		Capacity:         btcutil.Amount(channel.Capacity),
+		LocalBalance:     btcutil.Amount(channel.LocalBalance),
+		RemoteBalance:    btcutil.Amount(channel.RemoteBalance),
+		UnsettledBalance: btcutil.Amount(channel.UnsettledBalance),
+		Initiator:        channel.Initiator,
+		Private:          channel.Private,
+		NumPendingHtlcs:  len(channel.PendingHtlcs),
+		TotalSent:        btcutil.Amount(channel.TotalSatoshisSent),
+		TotalReceived:    btcutil.Amount(channel.TotalSatoshisReceived),
+		NumUpdates:       channel.NumUpdates,
+		FeePerKw:         chainfee.SatPerKWeight(channel.FeePerKw),
+		CommitWeight:     channel.CommitWeight,
+		CommitFee:        btcutil.Amount(channel.CommitFee),
+		LifeTime: time.Second * time.Duration(
+			channel.Lifetime,
+		),
+		Uptime: time.Second * time.Duration(
+			channel.Uptime,
+		),
+		LocalConstraints: newChannelConstraint(
+			channel.LocalConstraints,
+		),
+		RemoteConstraints: newChannelConstraint(
+			channel.RemoteConstraints,
+		),
+	}, nil
+}
+
+// ChannelConstraints contains information about the restraints place on a
+// channel commit for a particular node.
+type ChannelConstraints struct {
+	// CsvDelay is the relative CSV delay expressed in blocks.
+	CsvDelay uint32
+
+	// Reserve is the minimum balance that the node must maintain.
+	Reserve btcutil.Amount
+
+	// DustLimit is the dust limit for the channel commitment.
+	DustLimit btcutil.Amount
+
+	// MaxPendingAmt is the maximum amount that may be pending on the
+	// channel.
+	MaxPendingAmt lnwire.MilliSatoshi
+
+	// MinHtlc is the minimum htlc size that will be accepted on the
+	// channel.
+	MinHtlc lnwire.MilliSatoshi
+
+	// MaxAcceptedHtlcs is the maximum number of htlcs that the node will
+	// accept from its peer.
+	MaxAcceptedHtlcs uint32
+}
+
+// newChannelConstraint creates a channel constraints struct from the rpc
+// response.
+func newChannelConstraint(cc *lnrpc.ChannelConstraints) *ChannelConstraints {
+	if cc == nil {
+		return nil
+	}
+
+	return &ChannelConstraints{
+		CsvDelay:         cc.CsvDelay,
+		Reserve:          btcutil.Amount(cc.ChanReserveSat),
+		DustLimit:        btcutil.Amount(cc.DustLimitSat),
+		MaxPendingAmt:    lnwire.MilliSatoshi(cc.MaxPendingAmtMsat),
+		MinHtlc:          lnwire.MilliSatoshi(cc.MinHtlcMsat),
+		MaxAcceptedHtlcs: cc.MaxAcceptedHtlcs,
+	}
 }
 
 // ChannelUpdateType encodes the type of update for a channel update event.
@@ -991,28 +1109,12 @@ func (s *lightningClient) ListChannels(ctx context.Context) (
 
 	result := make([]ChannelInfo, len(response.Channels))
 	for i, channel := range response.Channels {
-		remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
+		channelInfo, err := newChannelInfo(channel)
 		if err != nil {
 			return nil, err
 		}
 
-		result[i] = ChannelInfo{
-			ChannelPoint:  channel.ChannelPoint,
-			Active:        channel.Active,
-			ChannelID:     channel.ChanId,
-			PubKeyBytes:   remoteVertex,
-			Capacity:      btcutil.Amount(channel.Capacity),
-			LocalBalance:  btcutil.Amount(channel.LocalBalance),
-			RemoteBalance: btcutil.Amount(channel.RemoteBalance),
-			Initiator:     channel.Initiator,
-			Private:       channel.Private,
-			LifeTime: time.Second * time.Duration(
-				channel.Lifetime,
-			),
-			Uptime: time.Second * time.Duration(
-				channel.Uptime,
-			),
-		}
+		result[i] = *channelInfo
 	}
 
 	return result, nil
@@ -1676,27 +1778,10 @@ func getChannelEventUpdate(rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
 	case lnrpc.ChannelEventUpdate_OPEN_CHANNEL:
 		result.UpdateType = OpenChannelUpdate
 		channel := rpcChannelEventUpdate.GetOpenChannel()
-		remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
+
+		result.OpenedChannelInfo, err = newChannelInfo(channel)
 		if err != nil {
 			return nil, err
-		}
-
-		result.OpenedChannelInfo = &ChannelInfo{
-			ChannelPoint:  channel.ChannelPoint,
-			Active:        channel.Active,
-			ChannelID:     channel.ChanId,
-			PubKeyBytes:   remoteVertex,
-			Capacity:      btcutil.Amount(channel.Capacity),
-			LocalBalance:  btcutil.Amount(channel.LocalBalance),
-			RemoteBalance: btcutil.Amount(channel.RemoteBalance),
-			Initiator:     channel.Initiator,
-			Private:       channel.Private,
-			LifeTime: time.Second * time.Duration(
-				channel.Lifetime,
-			),
-			Uptime: time.Second * time.Duration(
-				channel.Uptime,
-			),
 		}
 
 	case lnrpc.ChannelEventUpdate_CLOSED_CHANNEL:
