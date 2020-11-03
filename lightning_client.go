@@ -139,6 +139,10 @@ type LightningClient interface {
 
 	// ChannelBalance returns a summary of our channel balances.
 	ChannelBalance(ctx context.Context) (*ChannelBalance, error)
+
+	// GetNodeInfo looks up information for a specific node.
+	GetNodeInfo(ctx context.Context, pubkey route.Vertex,
+		includeChannels bool) (*NodeInfo, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -574,6 +578,59 @@ type ChannelBalance struct {
 
 	// PendingBalance is the sum of all pending channel balances.
 	PendingBalance btcutil.Amount
+}
+
+// Node describes a node in the network.
+type Node struct {
+	// LastUpdate is the last update time for the node.
+	LastUpdate time.Time
+
+	// Alias is the node's chosen alias.
+	Alias string
+
+	// Color is the node's chosen color.
+	Color string
+
+	// Features is the set of features the node supports.
+	Features []lnwire.FeatureBit
+}
+
+func newNode(lnNode *lnrpc.LightningNode) *Node {
+	if lnNode == nil {
+		return nil
+	}
+
+	node := &Node{
+		LastUpdate: time.Unix(int64(lnNode.LastUpdate), 0),
+		Alias:      lnNode.Alias,
+		Color:      lnNode.Color,
+		Features:   make([]lnwire.FeatureBit, 0, len(lnNode.Features)),
+	}
+
+	for featureBit := range lnNode.Features {
+		node.Features = append(
+			node.Features, lnwire.FeatureBit(featureBit),
+		)
+	}
+
+	return node
+}
+
+// NodeInfo contains information about a node and its channels.
+type NodeInfo struct {
+	// Node contains information about the node itself.
+	*Node
+
+	// ChannelCount is the total number of public channels the node has
+	// announced.
+	ChannelCount int
+
+	// TotalCapacity is the node's total public channel capacity.
+	TotalCapacity btcutil.Amount
+
+	// Channels contains all of the node's channels, only set if GetNode
+	// was queried with include channels set to true.
+	Channels []ChannelEdge
 }
 
 var (
@@ -2333,6 +2390,10 @@ func (s *lightningClient) GetChanInfo(ctx context.Context, channelId uint64) (
 		return nil, err
 	}
 
+	return newChannelEdge(rpcRes)
+}
+
+func newChannelEdge(rpcRes *lnrpc.ChannelEdge) (*ChannelEdge, error) {
 	vertex1, err := route.NewVertexFromStr(rpcRes.Node1Pub)
 	if err != nil {
 		return nil, err
@@ -2459,4 +2520,40 @@ func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
 		Balance:        btcutil.Amount(resp.Balance),
 		PendingBalance: btcutil.Amount(resp.PendingOpenBalance),
 	}, nil
+}
+
+// GetNodeInfo returns node info for the pubkey provided.
+func (s *lightningClient) GetNodeInfo(ctx context.Context, pubkey route.Vertex,
+	includeChannels bool) (*NodeInfo, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	nodeInfo, err := s.client.GetNodeInfo(rpcCtx, &lnrpc.NodeInfoRequest{
+		PubKey:          hex.EncodeToString(pubkey[:]),
+		IncludeChannels: includeChannels,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	info := &NodeInfo{
+		Node:          newNode(nodeInfo.Node),
+		ChannelCount:  int(nodeInfo.NumChannels),
+		TotalCapacity: btcutil.Amount(nodeInfo.TotalCapacity),
+		Channels:      make([]ChannelEdge, len(nodeInfo.Channels)),
+	}
+
+	for i, channel := range nodeInfo.Channels {
+		edge, err := newChannelEdge(channel)
+		if err != nil {
+			return nil, err
+		}
+
+		info.Channels[i] = *edge
+	}
+
+	return info, nil
 }
