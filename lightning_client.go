@@ -147,6 +147,9 @@ type LightningClient interface {
 
 	// DescribeGraph returns our view of the graph.
 	DescribeGraph(ctx context.Context, includeUnannounced bool) (*Graph, error)
+
+	// NetworkInfo returns stats regarding our view of the network.
+	NetworkInfo(ctx context.Context) (*NetworkInfo, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -650,6 +653,43 @@ type Graph struct {
 
 	// Edges is the set of edges in the channel graph.
 	Edges []ChannelEdge
+}
+
+// NetworkInfo describes the structure of our view of the graph.
+type NetworkInfo struct {
+	// GraphDiameter is the diameter of the graph.
+	GraphDiameter uint32
+
+	// AvgOutDegree is the average out degree in the graph.
+	AvgOutDegree float64
+
+	// MaxOutDegree is the largest out degree in the graph.
+	MaxOutDegree uint32
+
+	// NumNodes is the number of nodes in our view of the network.
+	NumNodes uint32
+
+	// NumChannels is the number of channels in our view of the network.
+	NumChannels uint32
+
+	// TotalNetworkCapacity is the total amount of funds in public channels.
+	TotalNetworkCapacity btcutil.Amount
+
+	// AvgChannelSize is the average public channel size.
+	AvgChannelSize btcutil.Amount
+
+	// MinChannelSize is the size of the smallest public channel in the graph.
+	MinChannelSize btcutil.Amount
+
+	// MaxChannelSize is the size of the largest public channel in the graph.
+	MaxChannelSize btcutil.Amount
+
+	// MedianChannelSize is the median public channel size.
+	MedianChannelSize btcutil.Amount
+
+	// NumZombieChans is the number of channels that have been marked as
+	// zombies.
+	NumZombieChans uint64
 }
 
 var (
@@ -2628,4 +2668,33 @@ func (s *lightningClient) DescribeGraph(ctx context.Context,
 	}
 
 	return graph, nil
+}
+
+// NetworkInfo returns stats regarding our view of the network.
+func (s *lightningClient) NetworkInfo(ctx context.Context) (*NetworkInfo,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.GetNetworkInfo(rpcCtx, &lnrpc.NetworkInfoRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &NetworkInfo{
+		GraphDiameter:        resp.GraphDiameter,
+		AvgOutDegree:         resp.AvgOutDegree,
+		MaxOutDegree:         resp.MaxOutDegree,
+		NumNodes:             resp.NumNodes,
+		NumChannels:          resp.NumChannels,
+		TotalNetworkCapacity: btcutil.Amount(resp.TotalNetworkCapacity),
+		AvgChannelSize:       btcutil.Amount(resp.AvgChannelSize),
+		MinChannelSize:       btcutil.Amount(resp.MinChannelSize),
+		MaxChannelSize:       btcutil.Amount(resp.MaxChannelSize),
+		MedianChannelSize:    btcutil.Amount(resp.MedianChannelSizeSat),
+		NumZombieChans:       resp.NumZombieChans,
+	}, nil
 }
