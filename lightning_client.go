@@ -144,6 +144,9 @@ type LightningClient interface {
 	// GetNodeInfo looks up information for a specific node.
 	GetNodeInfo(ctx context.Context, pubkey route.Vertex,
 		includeChannels bool) (*NodeInfo, error)
+
+	// DescribeGraph returns our view of the graph.
+	DescribeGraph(ctx context.Context, includeUnannounced bool) (*Graph, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -638,6 +641,15 @@ type NodeInfo struct {
 	// Channels contains all of the node's channels, only set if GetNode
 	// was queried with include channels set to true.
 	Channels []ChannelEdge
+}
+
+// Graph describes our view of the graph.
+type Graph struct {
+	// Nodes is the set of nodes in the channel graph.
+	Nodes []Node
+
+	// Edges is the set of edges in the channel graph.
+	Edges []ChannelEdge
 }
 
 var (
@@ -2578,4 +2590,42 @@ func (s *lightningClient) GetNodeInfo(ctx context.Context, pubkey route.Vertex,
 	}
 
 	return info, nil
+}
+
+// DescribeGraph returns our view of the graph.
+func (s *lightningClient) DescribeGraph(ctx context.Context,
+	includeUnannounced bool) (*Graph, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.DescribeGraph(rpcCtx, &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: includeUnannounced,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	graph := &Graph{
+		Nodes: make([]Node, len(resp.Nodes)),
+		Edges: make([]ChannelEdge, len(resp.Edges)),
+	}
+
+	for i, node := range resp.Nodes {
+		nodeinfo := newNode(node)
+		graph.Nodes[i] = *nodeinfo
+	}
+
+	for i, edge := range resp.Edges {
+		chanEdge, err := newChannelEdge(edge)
+		if err != nil {
+			return nil, err
+		}
+
+		graph.Edges[i] = *chanEdge
+	}
+
+	return graph, nil
 }
