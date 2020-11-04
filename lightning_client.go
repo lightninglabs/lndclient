@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -37,7 +38,8 @@ type LightningClient interface {
 	EstimateFeeToP2WSH(ctx context.Context, amt btcutil.Amount,
 		confTarget int32) (btcutil.Amount, error)
 
-	ConfirmedWalletBalance(ctx context.Context) (btcutil.Amount, error)
+	// WalletBalance returns a summary of the node's wallet balance.
+	WalletBalance(ctx context.Context) (*WalletBalance, error)
 
 	AddInvoice(ctx context.Context, in *invoicesrpc.AddInvoiceData) (
 		lntypes.Hash, string, error)
@@ -135,15 +137,40 @@ type LightningClient interface {
 	SendCoins(ctx context.Context, addr btcutil.Address,
 		amount btcutil.Amount, sendAll bool, confTarget int32,
 		satsPerByte int64, label string) (string, error)
+
+	// ChannelBalance returns a summary of our channel balances.
+	ChannelBalance(ctx context.Context) (*ChannelBalance, error)
+
+	// GetNodeInfo looks up information for a specific node.
+	GetNodeInfo(ctx context.Context, pubkey route.Vertex,
+		includeChannels bool) (*NodeInfo, error)
+
+	// DescribeGraph returns our view of the graph.
+	DescribeGraph(ctx context.Context, includeUnannounced bool) (*Graph, error)
+
+	// NetworkInfo returns stats regarding our view of the network.
+	NetworkInfo(ctx context.Context) (*NetworkInfo, error)
 }
 
 // Info contains info about the connected lnd node.
 type Info struct {
-	BlockHeight    uint32
+	// Version is the version that lnd is running.
+	Version string
+
+	// BlockHeight is the best block height that lnd has knowledge of.
+	BlockHeight uint32
+
+	// IdentityPubkey is our node's pubkey.
 	IdentityPubkey [33]byte
-	Alias          string
-	Network        string
-	Uris           []string
+
+	// Alias is our node's alias.
+	Alias string
+
+	// Network is the network we are currently operating on.
+	Network string
+
+	// Uris is the set of our node's advertised uris.
+	Uris []string
 
 	// SyncedToChain is true if the wallet's view is synced to the main
 	// chain.
@@ -152,6 +179,18 @@ type Info struct {
 	// SyncedToGraph is true if we consider ourselves to be synced with the
 	// public channel graph.
 	SyncedToGraph bool
+
+	// BestHeaderTimeStamp is the best block timestamp known to the wallet.
+	BestHeaderTimeStamp time.Time
+
+	// ActiveChannels is the number of active channels we have.
+	ActiveChannels uint32
+
+	// InactiveChannels is the number of inactive channels we have.
+	InactiveChannels uint32
+
+	// PendingChannels is the number of pending channels we have.
+	PendingChannels uint32
 }
 
 // ChannelInfo stores unpacked per-channel info.
@@ -179,6 +218,10 @@ type ChannelInfo struct {
 	// RemoteBalance is the counterparty's current balance in this channel.
 	RemoteBalance btcutil.Amount
 
+	// UnsettledBalance is the total amount on this channel that is
+	// unsettled.
+	UnsettledBalance btcutil.Amount
+
 	// Initiator indicates whether we opened the channel or not.
 	Initiator bool
 
@@ -192,6 +235,119 @@ type ChannelInfo struct {
 	// Uptime is the total amount of time the peer has been observed as
 	// online over its lifetime.
 	Uptime time.Duration
+
+	// TotalSent is the total amount sent over this channel for our own
+	// payments.
+	TotalSent btcutil.Amount
+
+	// TotalReceived is the total amount received over this channel for our
+	// own receipts.
+	TotalReceived btcutil.Amount
+
+	// NumUpdates is the number of updates we have had on this channel.
+	NumUpdates uint64
+
+	// NumPendingHtlcs is the count of pending htlcs on this channel.
+	NumPendingHtlcs int
+
+	// CSVDelay is the csv delay for our funds.
+	CSVDelay uint64
+
+	// FeePerKw is the current fee per kweight of the commit fee.
+	FeePerKw chainfee.SatPerKWeight
+
+	// CommitWeight is the weight of the commit.
+	CommitWeight int64
+
+	// CommitFee is the current commitment's fee.
+	CommitFee btcutil.Amount
+
+	// LocalConstraints is the set of constraints for the local node.
+	LocalConstraints *ChannelConstraints
+
+	// RemoteConstraints is the set of constraints for the remote node.
+	RemoteConstraints *ChannelConstraints
+}
+
+func newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo, error) {
+	remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ChannelInfo{
+		ChannelPoint:     channel.ChannelPoint,
+		Active:           channel.Active,
+		ChannelID:        channel.ChanId,
+		PubKeyBytes:      remoteVertex,
+		Capacity:         btcutil.Amount(channel.Capacity),
+		LocalBalance:     btcutil.Amount(channel.LocalBalance),
+		RemoteBalance:    btcutil.Amount(channel.RemoteBalance),
+		UnsettledBalance: btcutil.Amount(channel.UnsettledBalance),
+		Initiator:        channel.Initiator,
+		Private:          channel.Private,
+		NumPendingHtlcs:  len(channel.PendingHtlcs),
+		TotalSent:        btcutil.Amount(channel.TotalSatoshisSent),
+		TotalReceived:    btcutil.Amount(channel.TotalSatoshisReceived),
+		NumUpdates:       channel.NumUpdates,
+		FeePerKw:         chainfee.SatPerKWeight(channel.FeePerKw),
+		CommitWeight:     channel.CommitWeight,
+		CommitFee:        btcutil.Amount(channel.CommitFee),
+		LifeTime: time.Second * time.Duration(
+			channel.Lifetime,
+		),
+		Uptime: time.Second * time.Duration(
+			channel.Uptime,
+		),
+		LocalConstraints: newChannelConstraint(
+			channel.LocalConstraints,
+		),
+		RemoteConstraints: newChannelConstraint(
+			channel.RemoteConstraints,
+		),
+	}, nil
+}
+
+// ChannelConstraints contains information about the restraints place on a
+// channel commit for a particular node.
+type ChannelConstraints struct {
+	// CsvDelay is the relative CSV delay expressed in blocks.
+	CsvDelay uint32
+
+	// Reserve is the minimum balance that the node must maintain.
+	Reserve btcutil.Amount
+
+	// DustLimit is the dust limit for the channel commitment.
+	DustLimit btcutil.Amount
+
+	// MaxPendingAmt is the maximum amount that may be pending on the
+	// channel.
+	MaxPendingAmt lnwire.MilliSatoshi
+
+	// MinHtlc is the minimum htlc size that will be accepted on the
+	// channel.
+	MinHtlc lnwire.MilliSatoshi
+
+	// MaxAcceptedHtlcs is the maximum number of htlcs that the node will
+	// accept from its peer.
+	MaxAcceptedHtlcs uint32
+}
+
+// newChannelConstraint creates a channel constraints struct from the rpc
+// response.
+func newChannelConstraint(cc *lnrpc.ChannelConstraints) *ChannelConstraints {
+	if cc == nil {
+		return nil
+	}
+
+	return &ChannelConstraints{
+		CsvDelay:         cc.CsvDelay,
+		Reserve:          btcutil.Amount(cc.ChanReserveSat),
+		DustLimit:        btcutil.Amount(cc.DustLimitSat),
+		MaxPendingAmt:    lnwire.MilliSatoshi(cc.MaxPendingAmtMsat),
+		MinHtlc:          lnwire.MilliSatoshi(cc.MinHtlcMsat),
+		MaxAcceptedHtlcs: cc.MaxAcceptedHtlcs,
+	}
 }
 
 // ChannelUpdateType encodes the type of update for a channel update event.
@@ -420,6 +576,120 @@ type Peer struct {
 
 	// PingTime is the estimated round trip time to this peer.
 	PingTime time.Duration
+
+	// Sent is the total amount we have sent to this peer.
+	Sent btcutil.Amount
+
+	// Received is the total amount we have received from this peer.
+	Received btcutil.Amount
+}
+
+// ChannelBalance contains information about our channel balances.
+type ChannelBalance struct {
+	// Balance is the sum of all open channels balances denominated.
+	Balance btcutil.Amount
+
+	// PendingBalance is the sum of all pending channel balances.
+	PendingBalance btcutil.Amount
+}
+
+// Node describes a node in the network.
+type Node struct {
+	// LastUpdate is the last update time for the node.
+	LastUpdate time.Time
+
+	// Alias is the node's chosen alias.
+	Alias string
+
+	// Color is the node's chosen color.
+	Color string
+
+	// Features is the set of features the node supports.
+	Features []lnwire.FeatureBit
+}
+
+func newNode(lnNode *lnrpc.LightningNode) *Node {
+	if lnNode == nil {
+		return nil
+	}
+
+	node := &Node{
+		LastUpdate: time.Unix(int64(lnNode.LastUpdate), 0),
+		Alias:      lnNode.Alias,
+		Color:      lnNode.Color,
+		Features:   make([]lnwire.FeatureBit, 0, len(lnNode.Features)),
+	}
+
+	for featureBit := range lnNode.Features {
+		node.Features = append(
+			node.Features, lnwire.FeatureBit(featureBit),
+		)
+	}
+
+	return node
+}
+
+// NodeInfo contains information about a node and its channels.
+type NodeInfo struct {
+	// Node contains information about the node itself.
+	*Node
+
+	// ChannelCount is the total number of public channels the node has
+	// announced.
+	ChannelCount int
+
+	// TotalCapacity is the node's total public channel capacity.
+	TotalCapacity btcutil.Amount
+
+	// Channels contains all of the node's channels, only set if GetNode
+	// was queried with include channels set to true.
+	Channels []ChannelEdge
+}
+
+// Graph describes our view of the graph.
+type Graph struct {
+	// Nodes is the set of nodes in the channel graph.
+	Nodes []Node
+
+	// Edges is the set of edges in the channel graph.
+	Edges []ChannelEdge
+}
+
+// NetworkInfo describes the structure of our view of the graph.
+type NetworkInfo struct {
+	// GraphDiameter is the diameter of the graph.
+	GraphDiameter uint32
+
+	// AvgOutDegree is the average out degree in the graph.
+	AvgOutDegree float64
+
+	// MaxOutDegree is the largest out degree in the graph.
+	MaxOutDegree uint32
+
+	// NumNodes is the number of nodes in our view of the network.
+	NumNodes uint32
+
+	// NumChannels is the number of channels in our view of the network.
+	NumChannels uint32
+
+	// TotalNetworkCapacity is the total amount of funds in public channels.
+	TotalNetworkCapacity btcutil.Amount
+
+	// AvgChannelSize is the average public channel size.
+	AvgChannelSize btcutil.Amount
+
+	// MinChannelSize is the size of the smallest public channel in the graph.
+	MinChannelSize btcutil.Amount
+
+	// MaxChannelSize is the size of the largest public channel in the graph.
+	MaxChannelSize btcutil.Amount
+
+	// MedianChannelSize is the median public channel size.
+	MedianChannelSize btcutil.Amount
+
+	// NumZombieChans is the number of channels that have been marked as
+	// zombies.
+	NumZombieChans uint64
 }
 
 var (
@@ -483,8 +753,9 @@ func (s *lightningClient) WaitForFinished() {
 	s.wg.Wait()
 }
 
-func (s *lightningClient) ConfirmedWalletBalance(ctx context.Context) (
-	btcutil.Amount, error) {
+// WalletBalance returns a summary of the node's wallet balance.
+func (s *lightningClient) WalletBalance(ctx context.Context) (
+	*WalletBalance, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	defer cancel()
@@ -492,10 +763,13 @@ func (s *lightningClient) ConfirmedWalletBalance(ctx context.Context) (
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
 	resp, err := s.client.WalletBalance(rpcCtx, &lnrpc.WalletBalanceRequest{})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return btcutil.Amount(resp.ConfirmedBalance), nil
+	return &WalletBalance{
+		Confirmed:   btcutil.Amount(resp.ConfirmedBalance),
+		Unconfirmed: btcutil.Amount(resp.UnconfirmedBalance),
+	}, nil
 }
 
 func (s *lightningClient) GetInfo(ctx context.Context) (*Info, error) {
@@ -517,13 +791,18 @@ func (s *lightningClient) GetInfo(ctx context.Context) (*Info, error) {
 	copy(pubKeyArray[:], pubKey)
 
 	return &Info{
-		BlockHeight:    resp.BlockHeight,
-		IdentityPubkey: pubKeyArray,
-		Alias:          resp.Alias,
-		Network:        resp.Chains[0].Network,
-		Uris:           resp.Uris,
-		SyncedToChain:  resp.SyncedToChain,
-		SyncedToGraph:  resp.SyncedToGraph,
+		Version:             resp.Version,
+		BlockHeight:         resp.BlockHeight,
+		IdentityPubkey:      pubKeyArray,
+		Alias:               resp.Alias,
+		Network:             resp.Chains[0].Network,
+		Uris:                resp.Uris,
+		SyncedToChain:       resp.SyncedToChain,
+		SyncedToGraph:       resp.SyncedToGraph,
+		BestHeaderTimeStamp: time.Unix(resp.BestHeaderTimestamp, 0),
+		ActiveChannels:      resp.NumActiveChannels,
+		InactiveChannels:    resp.NumInactiveChannels,
+		PendingChannels:     resp.NumPendingChannels,
 	}, nil
 }
 
@@ -726,6 +1005,15 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 	}
 
 	return hash, resp.PaymentRequest, nil
+}
+
+// WalletBalance describes our wallet's current balance.
+type WalletBalance struct {
+	// Confirmed is our total confirmed balance.
+	Confirmed btcutil.Amount
+
+	// Unconfirmed is our total unconfirmed balance.
+	Unconfirmed btcutil.Amount
 }
 
 // Invoice represents an invoice in lnd.
@@ -950,28 +1238,12 @@ func (s *lightningClient) ListChannels(ctx context.Context) (
 
 	result := make([]ChannelInfo, len(response.Channels))
 	for i, channel := range response.Channels {
-		remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
+		channelInfo, err := newChannelInfo(channel)
 		if err != nil {
 			return nil, err
 		}
 
-		result[i] = ChannelInfo{
-			ChannelPoint:  channel.ChannelPoint,
-			Active:        channel.Active,
-			ChannelID:     channel.ChanId,
-			PubKeyBytes:   remoteVertex,
-			Capacity:      btcutil.Amount(channel.Capacity),
-			LocalBalance:  btcutil.Amount(channel.LocalBalance),
-			RemoteBalance: btcutil.Amount(channel.RemoteBalance),
-			Initiator:     channel.Initiator,
-			Private:       channel.Private,
-			LifeTime: time.Second * time.Duration(
-				channel.Lifetime,
-			),
-			Uptime: time.Second * time.Duration(
-				channel.Uptime,
-			),
-		}
+		result[i] = *channelInfo
 	}
 
 	return result, nil
@@ -1635,27 +1907,10 @@ func getChannelEventUpdate(rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
 	case lnrpc.ChannelEventUpdate_OPEN_CHANNEL:
 		result.UpdateType = OpenChannelUpdate
 		channel := rpcChannelEventUpdate.GetOpenChannel()
-		remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
+
+		result.OpenedChannelInfo, err = newChannelInfo(channel)
 		if err != nil {
 			return nil, err
-		}
-
-		result.OpenedChannelInfo = &ChannelInfo{
-			ChannelPoint:  channel.ChannelPoint,
-			Active:        channel.Active,
-			ChannelID:     channel.ChanId,
-			PubKeyBytes:   remoteVertex,
-			Capacity:      btcutil.Amount(channel.Capacity),
-			LocalBalance:  btcutil.Amount(channel.LocalBalance),
-			RemoteBalance: btcutil.Amount(channel.RemoteBalance),
-			Initiator:     channel.Initiator,
-			Private:       channel.Private,
-			LifeTime: time.Second * time.Duration(
-				channel.Lifetime,
-			),
-			Uptime: time.Second * time.Duration(
-				channel.Uptime,
-			),
 		}
 
 	case lnrpc.ChannelEventUpdate_CLOSED_CHANNEL:
@@ -2207,6 +2462,10 @@ func (s *lightningClient) GetChanInfo(ctx context.Context, channelId uint64) (
 		return nil, err
 	}
 
+	return newChannelEdge(rpcRes)
+}
+
+func newChannelEdge(rpcRes *lnrpc.ChannelEdge) (*ChannelEdge, error) {
 	vertex1, err := route.NewVertexFromStr(rpcRes.Node1Pub)
 	if err != nil {
 		return nil, err
@@ -2258,6 +2517,8 @@ func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
 			BytesReceived: peer.BytesRecv,
 			Inbound:       peer.Inbound,
 			PingTime:      pingTime,
+			Sent:          btcutil.Amount(peer.SatSent),
+			Received:      btcutil.Amount(peer.SatRecv),
 		}
 	}
 
@@ -2311,4 +2572,129 @@ func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
 	}
 
 	return resp.Txid, nil
+}
+
+// ChannelBalance returns a summary of our channel balances.
+func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.ChannelBalance(
+		rpcCtx, &lnrpc.ChannelBalanceRequest{},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ChannelBalance{
+		Balance:        btcutil.Amount(resp.Balance),
+		PendingBalance: btcutil.Amount(resp.PendingOpenBalance),
+	}, nil
+}
+
+// GetNodeInfo returns node info for the pubkey provided.
+func (s *lightningClient) GetNodeInfo(ctx context.Context, pubkey route.Vertex,
+	includeChannels bool) (*NodeInfo, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	nodeInfo, err := s.client.GetNodeInfo(rpcCtx, &lnrpc.NodeInfoRequest{
+		PubKey:          hex.EncodeToString(pubkey[:]),
+		IncludeChannels: includeChannels,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	info := &NodeInfo{
+		Node:          newNode(nodeInfo.Node),
+		ChannelCount:  int(nodeInfo.NumChannels),
+		TotalCapacity: btcutil.Amount(nodeInfo.TotalCapacity),
+		Channels:      make([]ChannelEdge, len(nodeInfo.Channels)),
+	}
+
+	for i, channel := range nodeInfo.Channels {
+		edge, err := newChannelEdge(channel)
+		if err != nil {
+			return nil, err
+		}
+
+		info.Channels[i] = *edge
+	}
+
+	return info, nil
+}
+
+// DescribeGraph returns our view of the graph.
+func (s *lightningClient) DescribeGraph(ctx context.Context,
+	includeUnannounced bool) (*Graph, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.DescribeGraph(rpcCtx, &lnrpc.ChannelGraphRequest{
+		IncludeUnannounced: includeUnannounced,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	graph := &Graph{
+		Nodes: make([]Node, len(resp.Nodes)),
+		Edges: make([]ChannelEdge, len(resp.Edges)),
+	}
+
+	for i, node := range resp.Nodes {
+		nodeinfo := newNode(node)
+		graph.Nodes[i] = *nodeinfo
+	}
+
+	for i, edge := range resp.Edges {
+		chanEdge, err := newChannelEdge(edge)
+		if err != nil {
+			return nil, err
+		}
+
+		graph.Edges[i] = *chanEdge
+	}
+
+	return graph, nil
+}
+
+// NetworkInfo returns stats regarding our view of the network.
+func (s *lightningClient) NetworkInfo(ctx context.Context) (*NetworkInfo,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.GetNetworkInfo(rpcCtx, &lnrpc.NetworkInfoRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	return &NetworkInfo{
+		GraphDiameter:        resp.GraphDiameter,
+		AvgOutDegree:         resp.AvgOutDegree,
+		MaxOutDegree:         resp.MaxOutDegree,
+		NumNodes:             resp.NumNodes,
+		NumChannels:          resp.NumChannels,
+		TotalNetworkCapacity: btcutil.Amount(resp.TotalNetworkCapacity),
+		AvgChannelSize:       btcutil.Amount(resp.AvgChannelSize),
+		MinChannelSize:       btcutil.Amount(resp.MinChannelSize),
+		MaxChannelSize:       btcutil.Amount(resp.MaxChannelSize),
+		MedianChannelSize:    btcutil.Amount(resp.MedianChannelSizeSat),
+		NumZombieChans:       resp.NumZombieChans,
+	}, nil
 }
