@@ -126,8 +126,12 @@ type LightningClient interface {
 	// ListPeers gets a list the peers we are currently connected to.
 	ListPeers(ctx context.Context) ([]Peer, error)
 
-	// Connect attempts to connect to a peer at the host specified.
-	Connect(ctx context.Context, peer route.Vertex, host string) error
+	// Connect attempts to connect to a peer at the host specified. If
+	// permanent is true then we'll attempt to connect to the peer
+	// permanently, meaning that the connection is maintained even if no
+	// channels exist between us and the peer.
+	Connect(ctx context.Context, peer route.Vertex, host string,
+		permanent bool) error
 
 	// SendCoins sends the passed amount of (or all) coins to the passed
 	// address. Either amount or sendAll must be specified, while
@@ -2527,7 +2531,7 @@ func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
 
 // Connect attempts to connect to a peer at the host specified.
 func (s *lightningClient) Connect(ctx context.Context, peer route.Vertex,
-	host string) error {
+	host string, permanent bool) error {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
 	defer cancel()
@@ -2539,6 +2543,7 @@ func (s *lightningClient) Connect(ctx context.Context, peer route.Vertex,
 			Pubkey: peer.String(),
 			Host:   host,
 		},
+		Perm: permanent,
 	})
 
 	return err
