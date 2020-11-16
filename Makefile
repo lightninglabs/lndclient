@@ -64,11 +64,11 @@ check: unit
 
 unit:
 	@$(call print, "Running unit tests.")
-	$(GOTEST)
+	$(GOTEST) ./...
 
 unit-race:
 	@$(call print, "Running unit race tests.")
-	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(GOTEST) -race
+	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(GOTEST) -race ./...
 
 # =========
 # UTILITIES
@@ -80,3 +80,10 @@ fmt:
 lint: $(LINT_BIN)
 	@$(call print, "Linting source.")
 	$(LINT)
+
+.PHONY: default \
+	build \
+	unit \
+	unit-race \
+	fmt \
+	lint
