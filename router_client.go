@@ -32,6 +32,11 @@ type RouterClient interface {
 	// payment update stream and an error stream.
 	TrackPayment(ctx context.Context, hash lntypes.Hash) (
 		chan PaymentStatus, chan error, error)
+
+	// SubscribeHtlcEvents subscribes to a stream of htlc events from the
+	// router.
+	SubscribeHtlcEvents(ctx context.Context) (<-chan *routerrpc.HtlcEvent,
+		<-chan error, error)
 }
 
 // PaymentStatus describe the state of a payment.
@@ -368,4 +373,49 @@ func marshallHopHint(hint zpay32.HopHint) (*lnrpc.HopHint, error) {
 		FeeProportionalMillionths: hint.FeeProportionalMillionths,
 		NodeId:                    nodeID.String(),
 	}, nil
+}
+
+// SubscribeHtlcEvents subscribes to a stream of htlc events from the router.
+func (r *routerClient) SubscribeHtlcEvents(ctx context.Context) (
+	<-chan *routerrpc.HtlcEvent, <-chan error, error) {
+
+	stream, err := r.client.SubscribeHtlcEvents(
+		r.routerKitMac.WithMacaroonAuth(ctx),
+		&routerrpc.SubscribeHtlcEventsRequest{},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Buffer our error channel by 1 so we don't need to worry about the
+	// client not listening or shutting down when we send an error.
+	errChan := make(chan error, 1)
+	htlcChan := make(chan *routerrpc.HtlcEvent)
+
+	go func() {
+		// Close our error and htlc channel when this loop exits to
+		// signal that we will no longer be sending results.
+		defer close(errChan)
+		defer close(htlcChan)
+
+		for {
+			htlc, err := stream.Recv()
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// Send the update to into our events channel, or exit
+			// if our context has been cancelled.
+			select {
+			case htlcChan <- htlc:
+
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			}
+		}
+	}()
+
+	return htlcChan, errChan, nil
 }
