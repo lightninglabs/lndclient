@@ -154,6 +154,11 @@ type LightningClient interface {
 
 	// NetworkInfo returns stats regarding our view of the network.
 	NetworkInfo(ctx context.Context) (*NetworkInfo, error)
+
+	// SubscribeInvoices allows a client to subscribe to updates
+	// of newly added/settled invoices.
+	SubscribeInvoices(ctx context.Context, req InvoiceSubscriptionRequest) (
+		<-chan *Invoice, <-chan error, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -2702,4 +2707,68 @@ func (s *lightningClient) NetworkInfo(ctx context.Context) (*NetworkInfo,
 		MedianChannelSize:    btcutil.Amount(resp.MedianChannelSizeSat),
 		NumZombieChans:       resp.NumZombieChans,
 	}, nil
+}
+
+// InvoiceSubscriptionRequest holds the parameters to specify from which update
+// to start streaming.
+type InvoiceSubscriptionRequest struct {
+	// If specified (non-zero), then we'll first start by sending out
+	// notifications for all added indexes with an add_index greater than this
+	// value. This allows callers to catch up on any events they missed while they
+	// weren't connected to the streaming RPC.
+	AddIndex uint64
+
+	// If specified (non-zero), then we'll first start by sending out
+	// notifications for all settled indexes with an settle_index greater than
+	// this value. This allows callers to catch up on any events they missed while
+	// they weren't connected to the streaming RPC.
+	SettleIndex uint64
+}
+
+// SubscribeInvoices subscribes a client to updates of newly added/settled invoices.
+func (s *lightningClient) SubscribeInvoices(ctx context.Context,
+	req InvoiceSubscriptionRequest) (<-chan *Invoice, <-chan error, error) {
+
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+	invoiceStream, err := s.client.SubscribeInvoices(
+		rpcCtx, &lnrpc.InvoiceSubscription{
+			AddIndex:    req.AddIndex,
+			SettleIndex: req.SettleIndex,
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	invoiceUpdates := make(chan *Invoice)
+	streamErr := make(chan error, 1)
+
+	// New invoices updates goroutine.
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer close(streamErr)
+		defer close(invoiceUpdates)
+
+		for {
+			rpcInvoice, err := invoiceStream.Recv()
+			if err != nil {
+				streamErr <- err
+				return
+			}
+			invoice, err := unmarshalInvoice(rpcInvoice)
+			if err != nil {
+				streamErr <- err
+				return
+			}
+
+			select {
+			case invoiceUpdates <- invoice:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return invoiceUpdates, streamErr, nil
 }
