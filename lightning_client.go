@@ -152,6 +152,10 @@ type LightningClient interface {
 	// DescribeGraph returns our view of the graph.
 	DescribeGraph(ctx context.Context, includeUnannounced bool) (*Graph, error)
 
+	// SubscribeGraph allows a client to subscribe to gaph topology updates.
+	SubscribeGraph(ctx context.Context) (<-chan *GraphTopologyUpdate,
+		<-chan error, error)
+
 	// NetworkInfo returns stats regarding our view of the network.
 	NetworkInfo(ctx context.Context) (*NetworkInfo, error)
 
@@ -662,6 +666,72 @@ type Graph struct {
 
 	// Edges is the set of edges in the channel graph.
 	Edges []ChannelEdge
+}
+
+// NodeUpdate holds a node announcement graph topology update.
+type NodeUpdate struct {
+	// Addresses holds the announced node addresses.
+	Addresses []string
+
+	// IdentityKey holds the node's pub key.
+	IdentityKey route.Vertex
+
+	// GlobalFeatures holds the node's advertised features.
+	GlobalFeatures lnwire.FeatureVector
+
+	// Alias is the node's alias name.
+	Alias string
+
+	// Color is the node's color in hex.
+	Color string
+}
+
+// ChannelEdgeUpdate holds a channel edge graph topology update.
+type ChannelEdgeUpdate struct {
+	// ChannelID is the short channel id.
+	ChannelID lnwire.ShortChannelID
+
+	// ChannelPoint is the funding channel point.
+	ChannelPoint wire.OutPoint
+
+	// Capacity is the channel capacity.
+	Capacity btcutil.Amount
+
+	// RoutingPolicy is the actual routing policy for the channel.
+	RoutingPolicy RoutingPolicy
+
+	// AdvertisingNode is the node who announced the update.
+	AdvertisingNode route.Vertex
+
+	// ConnectingNode is the other end of the channel.
+	ConnectingNode route.Vertex
+}
+
+// ChannelCloseUpdate holds a channel close graph topology update.
+type ChannelCloseUpdate struct {
+	// ChannelID is the short channel id of the closed channel.
+	ChannelID lnwire.ShortChannelID
+
+	// ChannelPoint is the funding channel point of the closed channel.
+	ChannelPoint wire.OutPoint
+
+	// Capacity is the capacity of the closed channel.
+	Capacity btcutil.Amount
+
+	// ClosedHeight is the block height when the channel was closed.
+	ClosedHeight uint32
+}
+
+// GraphTopologyUpdate encapsulates a streamed graph update.
+type GraphTopologyUpdate struct {
+	// NodeUpdates holds the node announcements.
+	NodeUpdates []NodeUpdate
+
+	// ChannelEdgeUpdates holds the channel announcements.
+	ChannelEdgeUpdates []ChannelEdgeUpdate
+
+	// ChannelCloseUpdates holds the closed channel announcements.
+	ChannelCloseUpdates []ChannelCloseUpdate
 }
 
 // NetworkInfo describes the structure of our view of the graph.
@@ -1879,24 +1949,24 @@ func (s *lightningClient) ChannelBackups(ctx context.Context) ([]byte, error) {
 	return resp.MultiChanBackup.MultiChanBackup, nil
 }
 
+// getOutPoint is a helper go convert a hash and output index to
+// a wire.OutPoint object.
+func getOutPoint(txId []byte, idx uint32) (*wire.OutPoint, error) {
+	hash, err := chainhash.NewHash(txId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &wire.OutPoint{
+		Hash:  *hash,
+		Index: idx,
+	}, nil
+}
+
 // getChannelEventUpdate converts an lnrpc.ChannelEventUpdate to the higher
 // level ChannelEventUpdate.
 func getChannelEventUpdate(rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
 	*ChannelEventUpdate, error) {
-
-	// getOutPoint is a helper go convert a hash and output index to
-	// a wire.OutPoint object.
-	getOutPoint := func(txId []byte, idx uint32) (*wire.OutPoint, error) {
-		hash, err := chainhash.NewHash(txId)
-		if err != nil {
-			return nil, err
-		}
-
-		return &wire.OutPoint{
-			Hash:  *hash,
-			Index: idx,
-		}, nil
-	}
 
 	result := &ChannelEventUpdate{}
 	var err error
@@ -2678,6 +2748,150 @@ func (s *lightningClient) DescribeGraph(ctx context.Context,
 	}
 
 	return graph, nil
+}
+
+// SubscribeGraph allows a client to subscribe to gaph topology updates.
+func (s *lightningClient) SubscribeGraph(ctx context.Context) (
+	<-chan *GraphTopologyUpdate, <-chan error, error) {
+
+	updateStream, err := s.client.SubscribeChannelGraph(
+		s.adminMac.WithMacaroonAuth(ctx),
+		&lnrpc.GraphTopologySubscription{},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	updates := make(chan *GraphTopologyUpdate)
+	errChan := make(chan error, 1)
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			rpcUpdate, err := updateStream.Recv()
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			update, err := getGraphTopologyUpdate(rpcUpdate)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			select {
+			case updates <- update:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return updates, errChan, nil
+}
+
+// getGraphTopologyUpdate converts an lnrpc.GraphTopologyUpdate to the higher
+// level GraphTopologyUpdate.
+func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
+	*GraphTopologyUpdate, error) {
+
+	result := &GraphTopologyUpdate{
+		NodeUpdates: make([]NodeUpdate, len(update.NodeUpdates)),
+		ChannelEdgeUpdates: make(
+			[]ChannelEdgeUpdate, len(update.ChannelUpdates),
+		),
+		ChannelCloseUpdates: make(
+			[]ChannelCloseUpdate, len(update.ClosedChans),
+		),
+	}
+
+	for i, nodeUpdate := range update.NodeUpdates {
+		identityKey, err := route.NewVertexFromStr(
+			nodeUpdate.IdentityKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		rawFeatureVector := &lnwire.RawFeatureVector{}
+		err = rawFeatureVector.Decode(
+			bytes.NewReader(nodeUpdate.GlobalFeatures),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		result.NodeUpdates[i] = NodeUpdate{
+			Addresses:   nodeUpdate.Addresses,
+			IdentityKey: identityKey,
+			GlobalFeatures: *lnwire.NewFeatureVector(
+				rawFeatureVector, lnwire.Features,
+			),
+			Alias: nodeUpdate.Alias,
+			Color: nodeUpdate.Color,
+		}
+	}
+
+	for i, channelUpdate := range update.ChannelUpdates {
+		channelPoint, err := getOutPoint(
+			channelUpdate.ChanPoint.GetFundingTxidBytes(),
+			channelUpdate.ChanPoint.OutputIndex,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		advertisingNode, err := route.NewVertexFromStr(
+			channelUpdate.AdvertisingNode,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		connectingNode, err := route.NewVertexFromStr(
+			channelUpdate.ConnectingNode,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		result.ChannelEdgeUpdates[i] = ChannelEdgeUpdate{
+			ChannelID: lnwire.NewShortChanIDFromInt(
+				channelUpdate.ChanId,
+			),
+			ChannelPoint: *channelPoint,
+			Capacity:     btcutil.Amount(channelUpdate.Capacity),
+			RoutingPolicy: *getRoutingPolicy(
+				channelUpdate.RoutingPolicy,
+			),
+			AdvertisingNode: advertisingNode,
+			ConnectingNode:  connectingNode,
+		}
+	}
+
+	for i, closedChan := range update.ClosedChans {
+		channelPoint, err := getOutPoint(
+			closedChan.ChanPoint.GetFundingTxidBytes(),
+			closedChan.ChanPoint.OutputIndex,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		result.ChannelCloseUpdates[i] = ChannelCloseUpdate{
+			ChannelID: lnwire.NewShortChanIDFromInt(
+				closedChan.ChanId,
+			),
+			ChannelPoint: *channelPoint,
+			Capacity:     btcutil.Amount(closedChan.Capacity),
+			ClosedHeight: closedChan.ClosedHeight,
+		}
+	}
+
+	return result, nil
 }
 
 // NetworkInfo returns stats regarding our view of the network.
