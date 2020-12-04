@@ -604,6 +604,9 @@ type ChannelBalance struct {
 
 // Node describes a node in the network.
 type Node struct {
+	// PubKey is the node's pubkey.
+	PubKey route.Vertex
+
 	// LastUpdate is the last update time for the node.
 	LastUpdate time.Time
 
@@ -617,12 +620,18 @@ type Node struct {
 	Features []lnwire.FeatureBit
 }
 
-func newNode(lnNode *lnrpc.LightningNode) *Node {
+func newNode(lnNode *lnrpc.LightningNode) (*Node, error) {
 	if lnNode == nil {
-		return nil
+		return nil, nil
+	}
+
+	pubKey, err := route.NewVertexFromStr(lnNode.PubKey)
+	if err != nil {
+		return nil, err
 	}
 
 	node := &Node{
+		PubKey:     pubKey,
 		LastUpdate: time.Unix(int64(lnNode.LastUpdate), 0),
 		Alias:      lnNode.Alias,
 		Color:      lnNode.Color,
@@ -635,7 +644,7 @@ func newNode(lnNode *lnrpc.LightningNode) *Node {
 		)
 	}
 
-	return node
+	return node, nil
 }
 
 // NodeInfo contains information about a node and its channels.
@@ -2623,8 +2632,13 @@ func (s *lightningClient) GetNodeInfo(ctx context.Context, pubkey route.Vertex,
 		return nil, err
 	}
 
+	node, err := newNode(nodeInfo.Node)
+	if err != nil {
+		return nil, err
+	}
+
 	info := &NodeInfo{
-		Node:          newNode(nodeInfo.Node),
+		Node:          node,
 		ChannelCount:  int(nodeInfo.NumChannels),
 		TotalCapacity: btcutil.Amount(nodeInfo.TotalCapacity),
 		Channels:      make([]ChannelEdge, len(nodeInfo.Channels)),
@@ -2664,7 +2678,11 @@ func (s *lightningClient) DescribeGraph(ctx context.Context,
 	}
 
 	for i, node := range resp.Nodes {
-		nodeinfo := newNode(node)
+		nodeinfo, err := newNode(node)
+		if err != nil {
+			return nil, err
+		}
+
 		graph.Nodes[i] = *nodeinfo
 	}
 
