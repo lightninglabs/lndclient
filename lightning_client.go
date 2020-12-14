@@ -622,6 +622,9 @@ type Node struct {
 
 	// Features is the set of features the node supports.
 	Features []lnwire.FeatureBit
+
+	// Addresses holds the network addresses of the node.
+	Addresses []string
 }
 
 func newNode(lnNode *lnrpc.LightningNode) (*Node, error) {
@@ -640,12 +643,17 @@ func newNode(lnNode *lnrpc.LightningNode) (*Node, error) {
 		Alias:      lnNode.Alias,
 		Color:      lnNode.Color,
 		Features:   make([]lnwire.FeatureBit, 0, len(lnNode.Features)),
+		Addresses:  make([]string, len(lnNode.Addresses)),
 	}
 
 	for featureBit := range lnNode.Features {
 		node.Features = append(
 			node.Features, lnwire.FeatureBit(featureBit),
 		)
+	}
+
+	for i := 0; i < len(lnNode.Addresses); i++ {
+		node.Addresses[i] = lnNode.Addresses[i].Addr
 	}
 
 	return node, nil
