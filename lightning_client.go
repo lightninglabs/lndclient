@@ -1634,8 +1634,8 @@ func (s *lightningClient) ForwardingHistory(ctx context.Context,
 			Timestamp:     time.Unix(int64(event.Timestamp), 0),
 			ChannelIn:     event.ChanIdIn,
 			ChannelOut:    event.ChanIdOut,
-			AmountMsatIn:  lnwire.MilliSatoshi(event.AmtIn),
-			AmountMsatOut: lnwire.MilliSatoshi(event.AmtOut),
+			AmountMsatIn:  lnwire.MilliSatoshi(event.AmtInMsat),
+			AmountMsatOut: lnwire.MilliSatoshi(event.AmtOutMsat),
 			FeeMsat:       lnwire.MilliSatoshi(event.FeeMsat),
 		}
 	}
