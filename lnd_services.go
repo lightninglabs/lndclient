@@ -2,6 +2,8 @@ package lndclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -87,6 +89,9 @@ type LndServicesConfig struct {
 
 	// TLSPath is the path to lnd's TLS certificate file.
 	TLSPath string
+
+	// Raw byte data of lnd's TLS certificate file.
+	RawTLS []byte
 
 	// CheckVersion is the minimum version the connected lnd node needs to
 	// be in order to be compatible. The node will be checked against this
@@ -588,17 +593,21 @@ var (
 )
 
 func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
+	var (
+		creds          credentials.TransportCredentials
+		loadCredsError error
+	)
 
-	// Load the specified TLS certificate and build transport credentials
-	// with it.
-	tlsPath := cfg.TLSPath
-	if tlsPath == "" {
-		tlsPath = defaultTLSCertPath
+	switch {
+	case cfg.RawTLS != nil:
+		creds, loadCredsError = loadRawTls(cfg)
+	default:
+		creds, loadCredsError = loadTlsFromFile(cfg)
 	}
 
-	creds, err := credentials.NewClientTLSFromFile(tlsPath, "")
-	if err != nil {
-		return nil, err
+	if loadCredsError != nil {
+		return nil, fmt.Errorf("unable to load tls credentials: %v",
+			loadCredsError)
 	}
 
 	// Create a dial options array.
@@ -618,4 +627,38 @@ func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
 	}
 
 	return conn, nil
+}
+
+func loadTlsFromFile(cfg *LndServicesConfig) (credentials.TransportCredentials, error) {
+	// Load the specified TLS certificate and build transport credentials
+	// with it.
+	tlsPath := cfg.TLSPath
+	if tlsPath == "" {
+		tlsPath = defaultTLSCertPath
+	}
+
+	creds, err := credentials.NewClientTLSFromFile(tlsPath, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return creds, nil
+}
+
+func loadRawTls(cfg *LndServicesConfig) (credentials.TransportCredentials, error) {
+	tlsBytes := cfg.RawTLS
+
+	certPool := x509.NewCertPool()
+
+	if !certPool.AppendCertsFromPEM(tlsBytes) {
+		return nil, fmt.Errorf("could not append raw tls cert to " +
+			"x509 certpool")
+	}
+
+	creds := credentials.NewTLS(&tls.Config{
+		InsecureSkipVerify: false,
+		RootCAs:            certPool,
+	})
+
+	return creds, nil
 }
