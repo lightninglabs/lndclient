@@ -97,12 +97,14 @@ type LndServicesConfig struct {
 	// block download is still in progress.
 	BlockUntilChainSynced bool
 
-	// ChainSyncCtx is an optional context that can be passed in when
+	// CallerCtx is an optional context that can be passed if the caller
+	// would like to be able to cancel the long waits involved in starting
+	// up the client, such as waiting for chain sync to complete when
 	// BlockUntilChainSynced is set to true. If a context is passed in and
 	// its Done() channel sends a message, the wait for chain sync is
 	// aborted. This allows a client to still be shut down properly if lnd
 	// takes a long time to sync.
-	ChainSyncCtx context.Context
+	CallerCtx context.Context
 }
 
 // DialerFunc is a function that is used as grpc.WithContextDialer().
@@ -292,7 +294,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		log.Infof("Waiting for lnd to be fully synced to its chain " +
 			"backend, this might take a while")
 
-		err := services.waitForChainSync(cfg.ChainSyncCtx)
+		err := services.waitForChainSync(cfg.CallerCtx)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("error waiting for chain to "+
