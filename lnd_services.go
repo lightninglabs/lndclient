@@ -218,10 +218,19 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	cleanupConn := func() {
+		closeErr := conn.Close()
+		if closeErr != nil {
+			log.Errorf("Error closing lnd connection: %v", closeErr)
+		}
+	}
+
 	nodeAlias, nodeKey, version, err := checkLndCompatibility(
 		conn, chainParams, readonlyMac, cfg.Network, cfg.CheckVersion,
 	)
 	if err != nil {
+		cleanupConn()
 		return nil, err
 	}
 
@@ -229,6 +238,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// can retrieve our full macaroon pouch from the directory.
 	macaroons, err := newMacaroonPouch(macaroonDir, cfg.CustomMacaroonPath)
 	if err != nil {
+		cleanupConn()
 		return nil, fmt.Errorf("unable to obtain macaroons: %v", err)
 	}
 
@@ -249,10 +259,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	cleanup := func() {
 		log.Debugf("Closing lnd connection")
-		err := conn.Close()
-		if err != nil {
-			log.Errorf("Error closing client connection: %v", err)
-		}
+		cleanupConn()
 
 		log.Debugf("Wait for client to finish")
 		lightningClient.WaitForFinished()
@@ -377,11 +384,6 @@ func checkLndCompatibility(conn *grpc.ClientConn, chainParams *chaincfg.Params,
 	// onErr is a closure that simplifies returning multiple values in the
 	// error case.
 	onErr := func(err error) (string, [33]byte, *verrpc.Version, error) {
-		closeErr := conn.Close()
-		if closeErr != nil {
-			log.Errorf("Error closing lnd connection: %v", closeErr)
-		}
-
 		// Make static error messages a bit less cryptic by adding the
 		// version or build tag that we expect.
 		newErr := fmt.Errorf("lnd compatibility check failed: %v", err)
