@@ -3,6 +3,7 @@ package lndclient
 import (
 	"context"
 	"fmt"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -24,6 +25,13 @@ type ChainNotifierClient interface {
 	RegisterSpendNtfn(ctx context.Context,
 		outpoint *wire.OutPoint, pkScript []byte, heightHint int32) (
 		chan *chainntnfs.SpendDetail, chan error, error)
+}
+
+var chainNotifierRequiredPermissions = []bakery.Op{
+	{
+		Entity: "onchain",
+		Action: "read",
+	},
 }
 
 type chainNotifierClient struct {

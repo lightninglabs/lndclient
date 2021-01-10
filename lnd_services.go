@@ -108,6 +108,19 @@ type LndServicesConfig struct {
 // DialerFunc is a function that is used as grpc.WithContextDialer().
 type DialerFunc func(context.Context, string) (net.Conn, error)
 
+// availablePermissions contains any/all available permissions
+// for clients and subclients. If a field is set to false,
+// that client/subclient cannot be used.
+type availablePermissions struct {
+	lightning     bool
+	walletKit     bool
+	chainNotifier bool
+	signer        bool
+	invoices      bool
+	router        bool
+	readOnly      bool
+}
+
 // LndServices constitutes a set of required services.
 type LndServices struct {
 	Client        LightningClient
@@ -124,6 +137,8 @@ type LndServices struct {
 	Version     *verrpc.Version
 
 	macaroons *macaroonPouch
+
+	permissions *availablePermissions
 }
 
 // GrpcLndServices constitutes a set of required RPC services.
@@ -216,6 +231,14 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// check that our provided macaroon(s) can perform the readonly
+	// operations necessary for initializing the client
+	if !checkMacaroonPermissions(readonlyMac, readOnlyRequiredPermssions) {
+		return nil, fmt.Errorf("permissions needed for readonly operations " +
+			"not found in provided macaroon(s)")
+	}
+
 	nodeAlias, nodeKey, version, err := checkLndCompatibility(
 		conn, chainParams, readonlyMac, cfg.Network, cfg.CheckVersion,
 	)
@@ -230,56 +253,88 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		return nil, fmt.Errorf("unable to obtain macaroons: %v", err)
 	}
 
+	// Check which clients our macaroon(s) can access
+	// and add those clients to lndServices accordingly
+	permissions := loadAvailablePermissions(macaroons)
+	var cleanupFuncs []func()
+
+	var lndServices = LndServices{
+		ChainParams: chainParams,
+		NodeAlias:   nodeAlias,
+		NodePubkey:  nodeKey,
+		Version:     version,
+		macaroons:   macaroons,
+		permissions: permissions,
+	}
+
 	// With the macaroons loaded and the version checked, we can now create
 	// the real lightning client which uses the admin macaroon.
-	lightningClient := newLightningClient(
-		conn, chainParams, macaroons.adminMac,
-	)
+	if permissions.lightning {
+		lightningClient := newLightningClient(conn, chainParams, macaroons.adminMac)
+		lndServices.Client = lightningClient
+
+		cleanupFuncs = append(cleanupFuncs, func() {
+			log.Debugf("Wait for client to shut down")
+			lightningClient.WaitForFinished()
+		})
+	} else {
+		return nil, fmt.Errorf("required permissions for main lightning client " +
+			"not available, please use a different macaroon")
+	}
 
 	// With the network check passed, we'll now initialize the rest of the
 	// sub-server connections, giving each of them their specific macaroon.
-	notifierClient := newChainNotifierClient(conn, macaroons.chainMac)
-	signerClient := newSignerClient(conn, macaroons.signerMac)
-	walletKitClient := newWalletKitClient(conn, macaroons.walletKitMac)
-	invoicesClient := newInvoicesClient(conn, macaroons.invoiceMac)
-	routerClient := newRouterClient(conn, macaroons.routerMac)
-	versionerClient := newVersionerClient(conn, macaroons.readonlyMac)
+	lndServices.Versioner = newVersionerClient(conn, macaroons.readonlyMac)
+
+	if permissions.chainNotifier {
+		notifierClient := newChainNotifierClient(conn, macaroons.chainMac)
+		lndServices.ChainNotifier = notifierClient
+
+		cleanupFuncs = append(cleanupFuncs, func() {
+			log.Debugf("Wait for chain notifier client to shut down")
+			notifierClient.WaitForFinished()
+		})
+	}
+
+	if permissions.invoices {
+		invoicesClient := newInvoicesClient(conn, macaroons.invoiceMac)
+		lndServices.Invoices = invoicesClient
+
+		cleanupFuncs = append(cleanupFuncs, func() {
+			log.Debugf("Wait for invoices client to shut down")
+			invoicesClient.WaitForFinished()
+		})
+	}
+
+	if permissions.signer {
+		lndServices.Signer = newSignerClient(conn, macaroons.signerMac)
+	}
+
+	if permissions.walletKit {
+		lndServices.WalletKit = newWalletKitClient(conn, macaroons.walletKitMac)
+	}
+
+	if permissions.router {
+		lndServices.Router = newRouterClient(conn, macaroons.routerMac)
+	}
 
 	cleanup := func() {
 		log.Debugf("Closing lnd connection")
-		err := conn.Close()
-		if err != nil {
+
+		if err := conn.Close(); err != nil {
 			log.Errorf("Error closing client connection: %v", err)
 		}
 
-		log.Debugf("Wait for client to finish")
-		lightningClient.WaitForFinished()
-
-		log.Debugf("Wait for chain notifier to finish")
-		notifierClient.WaitForFinished()
-
-		log.Debugf("Wait for invoices to finish")
-		invoicesClient.WaitForFinished()
+		for _, cleanupFunc := range cleanupFuncs {
+			cleanupFunc()
+		}
 
 		log.Debugf("Lnd services finished")
 	}
 
 	services := &GrpcLndServices{
-		LndServices: LndServices{
-			Client:        lightningClient,
-			WalletKit:     walletKitClient,
-			ChainNotifier: notifierClient,
-			Signer:        signerClient,
-			Invoices:      invoicesClient,
-			Router:        routerClient,
-			Versioner:     versionerClient,
-			ChainParams:   chainParams,
-			NodeAlias:     nodeAlias,
-			NodePubkey:    nodeKey,
-			Version:       version,
-			macaroons:     macaroons,
-		},
-		cleanup: cleanup,
+		LndServices: lndServices,
+		cleanup:     cleanup,
 	}
 
 	log.Infof("Using network %v", cfg.Network)
@@ -311,6 +366,43 @@ func (s *GrpcLndServices) Close() {
 	s.cleanup()
 
 	log.Debugf("Lnd services finished")
+}
+
+// GetAvailableClients returns a string slice containing
+// the names of all available clients, based the permissions found
+// in any loaded macaroons.
+func (s *GrpcLndServices) GetAvailableClients() []string {
+	var availablePerms []string
+
+	if s.permissions.lightning {
+		availablePerms = append(availablePerms, "lightning")
+	}
+
+	if s.permissions.walletKit {
+		availablePerms = append(availablePerms, "walletkit")
+	}
+
+	if s.permissions.router {
+		availablePerms = append(availablePerms, "router")
+	}
+
+	if s.permissions.signer {
+		availablePerms = append(availablePerms, "signer")
+	}
+
+	if s.permissions.invoices {
+		availablePerms = append(availablePerms, "invoices")
+	}
+
+	if s.permissions.chainNotifier {
+		availablePerms = append(availablePerms, "chainnotifier")
+	}
+
+	if s.permissions.readOnly {
+		availablePerms = append(availablePerms, "readonly")
+	}
+
+	return availablePerms
 }
 
 // waitForChainSync waits and blocks until the connected lnd node is fully
