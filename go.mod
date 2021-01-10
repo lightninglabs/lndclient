@@ -1,4 +1,4 @@
-module github.com/xplorfin/lndclient
+module github.com/lightninglabs/lndclient
 
 go 1.13
 
