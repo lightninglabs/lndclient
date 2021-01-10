@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 	"io"
 	"time"
 
@@ -129,6 +130,17 @@ type SendPaymentRequest struct {
 
 	// If set, circular payments to self are permitted.
 	AllowSelfPayment bool
+}
+
+var routerRequiredPermissions = []bakery.Op{
+	{
+		Entity: "offchain",
+		Action: "read",
+	},
+	{
+		Entity: "offchain",
+		Action: "write",
+	},
 }
 
 // routerClient is a wrapper around the generated routerrpc proxy.

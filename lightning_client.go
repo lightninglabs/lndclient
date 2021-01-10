@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 	"io"
 	"sync"
 	"time"
@@ -825,6 +826,84 @@ type lightningClient struct {
 	wg       sync.WaitGroup
 	params   *chaincfg.Params
 	adminMac serializedMacaroon
+}
+
+var lightningRequiredPermissions = []bakery.Op{
+	{
+		Entity: "address",
+		Action: "read",
+	},
+	{
+		Entity: "address",
+		Action: "write",
+	},
+	{
+		Entity: "message",
+		Action: "read",
+	},
+	{
+		Entity: "message",
+		Action: "write",
+	},
+	{
+		Entity: "peers",
+		Action: "read",
+	},
+	{
+		Entity: "peers",
+		Action: "write",
+	},
+	{
+		Entity: "onchain",
+		Action: "read",
+	},
+	{
+		Entity: "onchain",
+		Action: "write",
+	},
+	{
+		Entity: "invoices",
+		Action: "read",
+	},
+	{
+		Entity: "invoices",
+		Action: "write",
+	},
+	{
+		Entity: "info",
+		Action: "read",
+	},
+	{
+		Entity: "info",
+		Action: "write",
+	},
+	{
+		Entity: "offchain",
+		Action: "read",
+	},
+	{
+		Entity: "offchain",
+		Action: "write",
+	},
+	{
+		Entity: "macaroon",
+		Action: "read",
+	},
+	{
+		Entity: "macaroon",
+		Action: "write",
+	},
+	{
+		Entity: "macaroon",
+		Action: "generate",
+	},
+}
+
+var readOnlyRequiredPermssions = []bakery.Op{
+	{
+		Entity: "info",
+		Action: "read",
+	},
 }
 
 func newLightningClient(conn *grpc.ClientConn,

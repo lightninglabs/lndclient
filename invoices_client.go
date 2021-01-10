@@ -3,6 +3,7 @@ package lndclient
 import (
 	"context"
 	"errors"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 	"sync"
 
 	"github.com/btcsuite/btcutil"
@@ -30,6 +31,17 @@ type InvoicesClient interface {
 type InvoiceUpdate struct {
 	State   channeldb.ContractState
 	AmtPaid btcutil.Amount
+}
+
+var invoicesRequiredPermissions = []bakery.Op{
+	{
+		Entity: "invoices",
+		Action: "write",
+	},
+	{
+		Entity: "invoices",
+		Action: "read",
+	},
 }
 
 type invoicesClient struct {

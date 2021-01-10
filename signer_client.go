@@ -2,6 +2,7 @@ package lndclient
 
 import (
 	"context"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/txscript"
@@ -105,6 +106,17 @@ type SignDescriptor struct {
 	// InputIndex is the target input within the transaction that should be
 	// signed.
 	InputIndex int
+}
+
+var signerRequiredPermissions = []bakery.Op{
+	{
+		Entity: "signer",
+		Action: "generate",
+	},
+	{
+		Entity: "signer",
+		Action: "read",
+	},
 }
 
 type signerClient struct {

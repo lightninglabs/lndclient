@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"gopkg.in/macaroon-bakery.v2/bakery"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -75,6 +76,25 @@ type WalletKitClient interface {
 type walletKitClient struct {
 	client       walletrpc.WalletKitClient
 	walletKitMac serializedMacaroon
+}
+
+var walletKitRequiredPermissions = []bakery.Op{
+	{
+		Entity: "address",
+		Action: "write",
+	},
+	{
+		Entity: "address",
+		Action: "read",
+	},
+	{
+		Entity: "onchain",
+		Action: "write",
+	},
+	{
+		Entity: "onchain",
+		Action: "read",
+	},
 }
 
 // A compile-time constraint to ensure walletKitclient satisfies the
