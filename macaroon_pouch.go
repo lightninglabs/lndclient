@@ -27,6 +27,18 @@ func loadMacaroon(defaultMacDir, defaultMacFileName,
 	))
 }
 
+func serializeBytesToMacaroon(data []byte) serializedMacaroon {
+	var serialized serializedMacaroon
+
+	if data == nil {
+		serialized = ""
+	} else {
+		serialized = serializedMacaroon(hex.EncodeToString(data))
+	}
+
+	return serialized
+}
+
 // serializedMacaroon is a type that represents a hex-encoded macaroon. We'll
 // use this primarily vs the raw binary format as the gRPC metadata feature
 // requires that all keys and values be strings.
@@ -78,7 +90,7 @@ type macaroonPouch struct {
 
 // newMacaroonPouch returns a new instance of a fully populated macaroonPouch
 // given the directory where all the macaroons are stored.
-func newMacaroonPouch(macaroonDir, customMacPath string) (*macaroonPouch,
+func newMacaroonPouch(macaroonDir, customMacPath string, customMacaroon []byte) (*macaroonPouch,
 	error) {
 
 	// If a custom macaroon is specified, we assume it contains all
@@ -89,6 +101,20 @@ func newMacaroonPouch(macaroonDir, customMacPath string) (*macaroonPouch,
 		if err != nil {
 			return nil, err
 		}
+
+		return &macaroonPouch{
+			invoiceMac:   mac,
+			chainMac:     mac,
+			signerMac:    mac,
+			walletKitMac: mac,
+			routerMac:    mac,
+			adminMac:     mac,
+			readonlyMac:  mac,
+		}, nil
+	}
+
+	if customMacaroon != nil {
+		mac := serializeBytesToMacaroon(customMacaroon)
 
 		return &macaroonPouch{
 			invoiceMac:   mac,

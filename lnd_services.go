@@ -2,6 +2,8 @@ package lndclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -71,15 +73,25 @@ type LndServicesConfig struct {
 	Network Network
 
 	// MacaroonDir is the directory where all lnd macaroons can be found.
-	// Either this or CustomMacaroonPath can be specified but not both.
+	// One of this, CustomMacaroonPath, or CustomMacaroon can be specified,
+	// but only one.
 	MacaroonDir string
 
-	// CustomMacaroonPath is the full path to a custom macaroon file. Either
-	// this or MacaroonDir can be specified but not both.
+	// CustomMacaroonPath is the full path to a custom macaroon file.
+	// One of this, MacaroonDir, or CustomMacaroon can be specified,
+	// but only one.
 	CustomMacaroonPath string
+
+	// CustomMacaroon contains the raw data of any/all provided lnd macaroons.
+	// One of this, MacaroonDir, or CustomMacaroonPath can be specified,
+	// but only one.
+	CustomMacaroon []byte
 
 	// TLSPath is the path to lnd's TLS certificate file.
 	TLSPath string
+
+	// Raw byte data of lnd's TLS certificate file.
+	RawTLS []byte
 
 	// CheckVersion is the minimum version the connected lnd node needs to
 	// be in order to be compatible. The node will be checked against this
@@ -150,43 +162,21 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// We don't allow setting both the macaroon directory and the custom
 	// macaroon path. If both are empty, that's fine, the default behavior
 	// is to use lnd's default directory to try to locate the macaroons.
-	if cfg.MacaroonDir != "" && cfg.CustomMacaroonPath != "" {
-		return nil, fmt.Errorf("must set either MacaroonDir or " +
+	if cfg.CustomMacaroon == nil && (cfg.MacaroonDir != "" && cfg.CustomMacaroonPath != "") {
+		return nil, fmt.Errorf("if CustomMacaroon is not provided, " +
+			"must set either MacaroonDir or " +
 			"CustomMacaroonPath but not both")
 	}
 
-	// Based on the network, if the macaroon directory isn't set, then
-	// we'll use the expected default locations.
-	macaroonDir := cfg.MacaroonDir
-	if macaroonDir == "" {
-		switch cfg.Network {
-		case NetworkTestnet:
-			macaroonDir = filepath.Join(
-				defaultLndDir, defaultDataDir,
-				defaultChainSubDir, "bitcoin", "testnet",
-			)
+	var (
+		macaroonDir   string
+		loadMacDirErr error
+	)
 
-		case NetworkMainnet:
-			macaroonDir = filepath.Join(
-				defaultLndDir, defaultDataDir,
-				defaultChainSubDir, "bitcoin", "mainnet",
-			)
-
-		case NetworkSimnet:
-			macaroonDir = filepath.Join(
-				defaultLndDir, defaultDataDir,
-				defaultChainSubDir, "bitcoin", "simnet",
-			)
-
-		case NetworkRegtest:
-			macaroonDir = filepath.Join(
-				defaultLndDir, defaultDataDir,
-				defaultChainSubDir, "bitcoin", "regtest",
-			)
-
-		default:
-			return nil, fmt.Errorf("unsupported network: %v",
-				cfg.Network)
+	if cfg.CustomMacaroon == nil {
+		macaroonDir, loadMacDirErr = loadMacaroonsFromDirectory(cfg)
+		if loadMacDirErr != nil {
+			return nil, loadMacDirErr
 		}
 	}
 
@@ -210,12 +200,21 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// macaroon. We don't use the pouch yet because if not all subservers
 	// are enabled, then not all macaroons might be there and the user would
 	// get a more cryptic error message.
-	readonlyMac, err := loadMacaroon(
-		macaroonDir, defaultReadonlyFilename, cfg.CustomMacaroonPath,
-	)
-	if err != nil {
-		return nil, err
+	var readonlyMac serializedMacaroon
+	if cfg.CustomMacaroon == nil {
+		var loadMacErr error
+
+		readonlyMac, loadMacErr = loadMacaroon(
+			macaroonDir, defaultReadonlyFilename, cfg.CustomMacaroonPath,
+		)
+
+		if loadMacErr != nil {
+			return nil, loadMacErr
+		}
+	} else {
+		readonlyMac = serializeBytesToMacaroon(cfg.CustomMacaroon)
 	}
+
 	nodeAlias, nodeKey, version, err := checkLndCompatibility(
 		conn, chainParams, readonlyMac, cfg.Network, cfg.CheckVersion,
 	)
@@ -225,9 +224,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	// Now that we've ensured our macaroon directory is set properly, we
 	// can retrieve our full macaroon pouch from the directory.
-	macaroons, err := newMacaroonPouch(macaroonDir, cfg.CustomMacaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("unable to obtain macaroons: %v", err)
+	macaroons, loadMacPouchErr := newMacaroonPouch(macaroonDir, cfg.CustomMacaroonPath, cfg.CustomMacaroon)
+	if loadMacPouchErr != nil {
+		return nil, fmt.Errorf("unable to obtain macaroons: %v", loadMacPouchErr)
 	}
 
 	// With the macaroons loaded and the version checked, we can now create
@@ -363,6 +362,48 @@ func (s *GrpcLndServices) waitForChainSync(ctx context.Context) error {
 
 	// Wait for either an error or the nil close signal to arrive.
 	return <-update
+}
+
+// If loading macaroons from a specific directory,
+// loadMacaroonsFromDirectory creates a fully qualified
+// path to the macaroons directory based on the network.
+func loadMacaroonsFromDirectory(cfg *LndServicesConfig) (string, error) {
+	// Based on the network, if the macaroon directory isn't set, then
+	// we'll use the expected default locations.
+	macaroonDir := cfg.MacaroonDir
+	if macaroonDir == "" {
+		switch cfg.Network {
+		case NetworkTestnet:
+			macaroonDir = filepath.Join(
+				defaultLndDir, defaultDataDir,
+				defaultChainSubDir, "bitcoin", "testnet",
+			)
+
+		case NetworkMainnet:
+			macaroonDir = filepath.Join(
+				defaultLndDir, defaultDataDir,
+				defaultChainSubDir, "bitcoin", "mainnet",
+			)
+
+		case NetworkSimnet:
+			macaroonDir = filepath.Join(
+				defaultLndDir, defaultDataDir,
+				defaultChainSubDir, "bitcoin", "simnet",
+			)
+
+		case NetworkRegtest:
+			macaroonDir = filepath.Join(
+				defaultLndDir, defaultDataDir,
+				defaultChainSubDir, "bitcoin", "regtest",
+			)
+
+		default:
+			return "", fmt.Errorf("unsupported network: %v",
+				cfg.Network)
+		}
+	}
+
+	return macaroonDir, nil
 }
 
 // checkLndCompatibility makes sure the connected lnd instance is running on the
@@ -533,17 +574,21 @@ var (
 )
 
 func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
+	var (
+		creds          credentials.TransportCredentials
+		loadCredsError error
+	)
 
-	// Load the specified TLS certificate and build transport credentials
-	// with it.
-	tlsPath := cfg.TLSPath
-	if tlsPath == "" {
-		tlsPath = defaultTLSCertPath
+	switch {
+	case cfg.RawTLS != nil:
+		creds, loadCredsError = loadRawTls(cfg)
+	default:
+		creds, loadCredsError = loadTlsFromFile(cfg)
 	}
 
-	creds, err := credentials.NewClientTLSFromFile(tlsPath, "")
-	if err != nil {
-		return nil, err
+	if loadCredsError != nil {
+		return nil, fmt.Errorf("unable to load tls credentials: %v",
+			loadCredsError)
 	}
 
 	// Create a dial options array.
@@ -563,4 +608,38 @@ func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
 	}
 
 	return conn, nil
+}
+
+func loadTlsFromFile(cfg *LndServicesConfig) (credentials.TransportCredentials, error) {
+	// Load the specified TLS certificate and build transport credentials
+	// with it.
+	tlsPath := cfg.TLSPath
+	if tlsPath == "" {
+		tlsPath = defaultTLSCertPath
+	}
+
+	creds, err := credentials.NewClientTLSFromFile(tlsPath, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return creds, nil
+}
+
+func loadRawTls(cfg *LndServicesConfig) (credentials.TransportCredentials, error) {
+	tlsBytes := cfg.RawTLS
+
+	certPool := x509.NewCertPool()
+
+	if !certPool.AppendCertsFromPEM(tlsBytes) {
+		return nil, fmt.Errorf("could not append raw tls cert to " +
+			"x509 certpool")
+	}
+
+	creds := credentials.NewTLS(&tls.Config{
+		InsecureSkipVerify: false,
+		RootCAs:            certPool,
+	})
+
+	return creds, nil
 }
