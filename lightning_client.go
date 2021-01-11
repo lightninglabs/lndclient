@@ -2851,22 +2851,25 @@ func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
 			return nil, err
 		}
 
-		rawFeatureVector := &lnwire.RawFeatureVector{}
-		err = rawFeatureVector.Decode(
-			bytes.NewReader(nodeUpdate.GlobalFeatures),
-		)
-		if err != nil {
-			return nil, err
-		}
-
 		result.NodeUpdates[i] = NodeUpdate{
 			Addresses:   nodeUpdate.Addresses,
 			IdentityKey: identityKey,
-			GlobalFeatures: *lnwire.NewFeatureVector(
+			Alias:       nodeUpdate.Alias,
+			Color:       nodeUpdate.Color,
+		}
+
+		if nodeUpdate.GlobalFeatures != nil {
+			rawFeatureVector := &lnwire.RawFeatureVector{}
+			err = rawFeatureVector.Decode(
+				bytes.NewReader(nodeUpdate.GlobalFeatures),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			result.NodeUpdates[i].GlobalFeatures = *lnwire.NewFeatureVector(
 				rawFeatureVector, lnwire.Features,
-			),
-			Alias: nodeUpdate.Alias,
-			Color: nodeUpdate.Color,
+			)
 		}
 	}
 
