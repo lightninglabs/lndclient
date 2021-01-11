@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -24,6 +25,10 @@ var (
 	// chainSyncPollInterval is the interval in which we poll the GetInfo
 	// call to find out if lnd is fully synced to its chain backend.
 	chainSyncPollInterval = 5 * time.Second
+
+	// defaultUnlockedInterval is the default amount of time we wait between
+	// checks that the wallet is unlocked.
+	defaultUnlockedInterval = 5 * time.Second
 
 	// minimalCompatibleVersion is the minimum version and build tags
 	// required in lnd to get all functionality implemented in lndclient.
@@ -97,12 +102,24 @@ type LndServicesConfig struct {
 	// block download is still in progress.
 	BlockUntilChainSynced bool
 
-	// ChainSyncCtx is an optional context that can be passed in when
-	// BlockUntilChainSynced is set to true. If a context is passed in and
-	// its Done() channel sends a message, the wait for chain sync is
-	// aborted. This allows a client to still be shut down properly if lnd
-	// takes a long time to sync.
-	ChainSyncCtx context.Context
+	// BlockUntilUnlocked denotes that the NewLndServices function should
+	// block until lnd is unlocked.
+	BlockUntilUnlocked bool
+
+	// UnlockInterval sets the interval at which we will query lnd to
+	// determine whether lnd is unlocked when BlockUntilUnlocked is true.
+	// This value is optional, and will be replaced with a default if it is
+	// zero.
+	UnlockInterval time.Duration
+
+	// CallerCtx is an optional context that can be passed if the caller
+	// would like to be able to cancel the long waits involved in starting
+	// up the client, such as waiting for chain sync to complete when
+	// BlockUntilChainSynced is set to true, or waiting for lnd to be
+	// unlocked when BlockUntilUnlocked is set to true. If a context is
+	// passed in and its Done() channel sends a message, these waits will
+	// be aborted. This allows a client to still be shut down properly.
+	CallerCtx context.Context
 }
 
 // DialerFunc is a function that is used as grpc.WithContextDialer().
@@ -216,10 +233,29 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	if err != nil {
 		return nil, err
 	}
-	nodeAlias, nodeKey, version, err := checkLndCompatibility(
-		conn, chainParams, readonlyMac, cfg.Network, cfg.CheckVersion,
+
+	cleanupConn := func() {
+		closeErr := conn.Close()
+		if closeErr != nil {
+			log.Errorf("Error closing lnd connection: %v", closeErr)
+		}
+	}
+
+	// Get lnd's info, blocking until lnd is unlocked if required.
+	info, err := getLndInfo(
+		cfg.CallerCtx, lnrpc.NewLightningClient(conn), readonlyMac,
+		cfg.BlockUntilUnlocked, cfg.UnlockInterval,
 	)
 	if err != nil {
+		cleanupConn()
+		return nil, err
+	}
+
+	nodeAlias, nodeKey, version, err := checkLndCompatibility(
+		conn, readonlyMac, info, cfg.Network, cfg.CheckVersion,
+	)
+	if err != nil {
+		cleanupConn()
 		return nil, err
 	}
 
@@ -227,6 +263,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// can retrieve our full macaroon pouch from the directory.
 	macaroons, err := newMacaroonPouch(macaroonDir, cfg.CustomMacaroonPath)
 	if err != nil {
+		cleanupConn()
 		return nil, fmt.Errorf("unable to obtain macaroons: %v", err)
 	}
 
@@ -247,10 +284,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	cleanup := func() {
 		log.Debugf("Closing lnd connection")
-		err := conn.Close()
-		if err != nil {
-			log.Errorf("Error closing client connection: %v", err)
-		}
+		cleanupConn()
 
 		log.Debugf("Wait for client to finish")
 		lightningClient.WaitForFinished()
@@ -292,7 +326,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		log.Infof("Waiting for lnd to be fully synced to its chain " +
 			"backend, this might take a while")
 
-		err := services.waitForChainSync(cfg.ChainSyncCtx)
+		err := services.waitForChainSync(cfg.CallerCtx)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("error waiting for chain to "+
@@ -365,21 +399,94 @@ func (s *GrpcLndServices) waitForChainSync(ctx context.Context) error {
 	return <-update
 }
 
+// getLndInfo queries lnd for information about the node it is connected to.
+// If the waitForUnlocked boolean is set, it will examine any errors returned
+// and back off if the failure is due to lnd currently being locked. Otherwise,
+// it will fail fast on any errors returned. We use the raw ln client so that
+// we can set specific grpc options we need to wait for lnd to be ready.
+func getLndInfo(ctx context.Context, ln lnrpc.LightningClient,
+	readonlyMac serializedMacaroon, waitForUnlocked bool,
+	waitInterval time.Duration) (*Info, error) {
+
+	if waitInterval == 0 {
+		waitInterval = defaultUnlockedInterval
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if waitForUnlocked {
+		log.Info("Waiting for lnd to unlock")
+	}
+
+	for {
+		// There are a few states that lnd could be in here:
+		// Down: lnd is not listening for requests, err Unavailable
+		// Locked: lnd is currently locked, err Unimplemented
+		// Unlocking: lnd has just been unlocked, err Unavailable
+		// Unlocked, ok: lnd is unlocked, no error
+		// Unlocked, not ok: lnd is unlocked but in bad state, err
+		//
+		// We call getinfo with our WaitForReady option, which waits
+		// for temporary errors (such as the error we get when lnd is
+		// unlocking) to resolve, but will timeout on permanent errors
+		// (such as lnd being permanently down). We use our wait
+		// interval as a deadline for our context so that we will fail
+		// within that period when lnd is down.
+		rpcCtx, cancel := context.WithTimeout(ctx, waitInterval)
+		info, err := ln.GetInfo(
+			readonlyMac.WithMacaroonAuth(rpcCtx),
+			&lnrpc.GetInfoRequest{},
+			grpc.WaitForReady(waitForUnlocked),
+		)
+		cancel()
+		if err == nil {
+			return newInfo(info)
+		}
+
+		// If we do not want to wait for lnd to be unlocked, we just
+		// fail immediately on any error.
+		if !waitForUnlocked {
+			return nil, err
+		}
+
+		// If we do not get a rpc error code, something else is wrong
+		// with the call, so we fail.
+		rpcErrorCode, ok := status.FromError(err)
+		if !ok {
+			return nil, err
+		}
+
+		// If we did not get an unimplemented error, indicating that
+		// lnd is locked, we fail because something else is wrong, and
+		// we expect our wait until ready to catch race conditions where
+		// the server is in the process of unlocking.
+		if rpcErrorCode.Code() != codes.Unimplemented {
+			return nil, err
+		}
+
+		// At this point, we know lnd is locked, so we wait for our
+		// interval, exiting if context is cancelled.
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+
+		case <-time.After(waitInterval):
+		}
+	}
+}
+
 // checkLndCompatibility makes sure the connected lnd instance is running on the
 // correct network, has the version RPC implemented, is the correct minimal
 // version and supports all required build tags/subservers.
-func checkLndCompatibility(conn *grpc.ClientConn, chainParams *chaincfg.Params,
-	readonlyMac serializedMacaroon, network Network,
+func checkLndCompatibility(conn *grpc.ClientConn,
+	readonlyMac serializedMacaroon, info *Info, network Network,
 	minVersion *verrpc.Version) (string, [33]byte, *verrpc.Version, error) {
 
 	// onErr is a closure that simplifies returning multiple values in the
 	// error case.
 	onErr := func(err error) (string, [33]byte, *verrpc.Version, error) {
-		closeErr := conn.Close()
-		if closeErr != nil {
-			log.Errorf("Error closing lnd connection: %v", closeErr)
-		}
-
 		// Make static error messages a bit less cryptic by adding the
 		// version or build tag that we expect.
 		newErr := fmt.Errorf("lnd compatibility check failed: %v", err)
@@ -392,23 +499,16 @@ func checkLndCompatibility(conn *grpc.ClientConn, chainParams *chaincfg.Params,
 		return "", [33]byte{}, nil, newErr
 	}
 
-	// We use our own clients with a readonly macaroon here, because we know
-	// that's all we need for the checks.
-	lightningClient := newLightningClient(conn, chainParams, readonlyMac)
-	versionerClient := newVersionerClient(conn, readonlyMac)
-
-	// With our readonly macaroon obtained, we'll ensure that the network
-	// for lnd matches our expected network.
-	info, err := lightningClient.GetInfo(context.Background())
-	if err != nil {
-		err := fmt.Errorf("unable to get info for lnd node: %v", err)
-		return onErr(err)
-	}
+	// Ensure that the network for lnd matches our expected network.
 	if string(network) != info.Network {
 		err := fmt.Errorf("network mismatch with connected lnd node, "+
 			"wanted '%s', got '%s'", network, info.Network)
 		return onErr(err)
 	}
+
+	// We use our own clients with a readonly macaroon here, because we know
+	// that's all we need for the checks.
+	versionerClient := newVersionerClient(conn, readonlyMac)
 
 	// Now let's also check the version of the connected lnd node.
 	version, err := checkVersionCompatibility(versionerClient, minVersion)

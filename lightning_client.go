@@ -878,6 +878,10 @@ func (s *lightningClient) GetInfo(ctx context.Context) (*Info, error) {
 		return nil, err
 	}
 
+	return newInfo(resp)
+}
+
+func newInfo(resp *lnrpc.GetInfoResponse) (*Info, error) {
 	pubKey, err := hex.DecodeString(resp.IdentityPubkey)
 	if err != nil {
 		return nil, err

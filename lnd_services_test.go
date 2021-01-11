@@ -2,9 +2,15 @@ package lndclient
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"google.golang.org/grpc"
+
+	"github.com/lightningnetwork/lnd/lnrpc"
+
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -153,6 +159,120 @@ func TestLndVersionCheckComparison(t *testing.T) {
 				t.Fatalf("unexpected error, got '%v' wanted "+
 					"'%v'", err, tc.expectedErr)
 			}
+		})
+	}
+}
+
+// lockLNDMock is a mock lightning client which mocks calls to getinfo to
+// determine the unlocked state of lnd.
+type lockLNDMock struct {
+	lnrpc.LightningClient
+	callCount int
+	errors    []error
+}
+
+// GetInfo mocks a call to getinfo, using our call count to get the error for
+// this call as the index in our pre-set error slice.
+func (l *lockLNDMock) GetInfo(ctx context.Context, _ *lnrpc.GetInfoRequest,
+	_ ...grpc.CallOption) (*lnrpc.GetInfoResponse, error) {
+
+	// Our actual call would use ctx, so add a panic to reflect that.
+	if ctx == nil {
+		panic("nil context for getinfo")
+	}
+
+	err := l.errors[l.callCount]
+
+	l.callCount++
+
+	return &lnrpc.GetInfoResponse{
+		Chains: []*lnrpc.Chain{{}},
+	}, err
+}
+
+func newLockLndMock(errors []error) *lockLNDMock {
+	return &lockLNDMock{
+		errors: errors,
+	}
+}
+
+// TestGetLndInfo tests our logic for querying lnd for information in the case
+// where we wait for the wallet to unlock, and when we fail fast.
+func TestGetLndInfo(t *testing.T) {
+	// Override our default so that we don't have long waits in tests.
+	defaultUnlockedInterval = 1
+
+	var (
+		ctx       = context.Background()
+		nonNilErr = errors.New("failed")
+		unlockErr = status.Error(codes.Unimplemented, "unimpl")
+	)
+
+	tests := []struct {
+		name         string
+		context      context.Context
+		waitUnlocked bool
+		errors       []error
+		expected     error
+	}{
+		{
+			name:     "no error",
+			context:  ctx,
+			errors:   []error{nil},
+			expected: nil,
+		},
+		{
+			name: "nil context",
+			errors: []error{
+				nil,
+			},
+			expected: nil,
+		},
+		{
+			name:     "do not wait for unlock",
+			errors:   []error{unlockErr},
+			expected: unlockErr,
+		},
+		{
+			name:         "wait for unlock",
+			waitUnlocked: true,
+			errors:       []error{unlockErr, nil},
+			expected:     nil,
+		},
+		{
+			name:         "multiple unlock errors",
+			waitUnlocked: true,
+			errors:       []error{unlockErr, unlockErr, nil},
+			expected:     nil,
+		},
+		{
+			name:         "lnd down",
+			waitUnlocked: true,
+			errors: []error{
+				context.DeadlineExceeded,
+			},
+			expected: context.DeadlineExceeded,
+		},
+		{
+			name:         "other error",
+			waitUnlocked: true,
+			errors:       []error{nonNilErr},
+			expected:     nonNilErr,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			mock := newLockLndMock(test.errors)
+
+			_, err := getLndInfo(
+				test.context, mock, "readonlymac",
+				test.waitUnlocked, 0,
+			)
+			require.Equal(t, test.expected, err)
+			require.Equal(t, len(test.errors), mock.callCount)
 		})
 	}
 }
