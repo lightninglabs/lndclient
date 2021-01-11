@@ -36,6 +36,7 @@ var (
 		"PayInvoice":             "SendPaymentSync",
 		"UpdateChanPolicy":       "UpdateChannelPolicy",
 		"NetworkInfo":            "GetNetworkInfo",
+		"SubscribeGraph":         "SubscribeChannelGraph",
 	}
 )
 
