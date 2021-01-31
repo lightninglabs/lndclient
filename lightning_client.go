@@ -187,6 +187,16 @@ type LightningClient interface {
 	CheckMacaroonPermissions(ctx context.Context, macaroon []byte,
 		permissions []MacaroonPermission, fullMethod string) (bool,
 		error)
+
+	// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor
+	// chain. A gRPC middleware is software component external to lnd that
+	// aims to add additional business logic to lnd by observing/
+	// intercepting/validating incoming gRPC client requests and (if needed)
+	// replacing/overwriting outgoing messages before they're sent to the
+	// client.
+	RegisterRPCMiddleware(ctx context.Context, middlewareName,
+		customCaveatName string, readOnly bool, timeout time.Duration,
+		intercept InterceptFunction) (chan error, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -3563,4 +3573,87 @@ func (s *lightningClient) CheckMacaroonPermissions(ctx context.Context,
 	}
 
 	return res.Valid, nil
+}
+
+// InterceptFunction is a function type for intercepting RPC calls from a
+// middleware.
+type InterceptFunction func(context.Context,
+	*lnrpc.RPCMiddlewareRequest) (*lnrpc.RPCMiddlewareResponse, error)
+
+// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
+// gRPC middleware is software component external to lnd that aims to add
+// additional business logic to lnd by observing/intercepting/validating
+// incoming gRPC client requests and (if needed) replacing/overwriting outgoing
+// messages before they're sent to the client.
+func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
+	middlewareName, customCaveatName string, readOnly bool,
+	timeout time.Duration, intercept InterceptFunction) (chan error, error) {
+
+	interceptStream, err := s.client.RegisterRPCMiddleware(
+		s.adminMac.WithMacaroonAuth(ctx),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// We are expected to send an initial registration message immediately.
+	registerMsg := &lnrpc.RPCMiddlewareResponse{
+		MiddlewareMessage: &lnrpc.RPCMiddlewareResponse_Register{
+			Register: &lnrpc.MiddlewareRegistration{
+				MiddlewareName:           middlewareName,
+				CustomMacaroonCaveatName: customCaveatName,
+				ReadOnlyMode:             readOnly,
+			},
+		},
+	}
+	if err := interceptStream.SendMsg(registerMsg); err != nil {
+		return nil, err
+	}
+
+	errChan := make(chan error, 1)
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			select {
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+
+			default:
+			}
+
+			request, err := interceptStream.Recv()
+			if err != nil {
+				errChan <- fmt.Errorf("RPC middleware receive "+
+					"failed: %v", err)
+
+				return
+			}
+
+			// Create a child context for our accept function which
+			// will time out after the timeout period provided.
+			ctxt, cancel := context.WithTimeout(ctx, timeout)
+
+			resp, err := intercept(ctxt, request)
+			cancel()
+			if err != nil {
+				errChan <- fmt.Errorf("intercept function "+
+					"failed: %v", err)
+
+				return
+			}
+
+			if err := interceptStream.Send(resp); err != nil {
+				errChan <- fmt.Errorf("RPC middleware send "+
+					"failed: %v", err)
+
+				return
+			}
+		}
+	}()
+
+	return errChan, nil
 }

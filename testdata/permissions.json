@@ -444,6 +444,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/RegisterRPCMiddleware": {
+            "permissions": [
+                {
+                    "entity": "macaroon",
+                    "action": "write"
+                }
+            ]
+        },
         "/lnrpc.Lightning/RestoreChannelBackups": {
             "permissions": [
                 {
