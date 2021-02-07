@@ -1177,6 +1177,9 @@ type InvoiceHtlc struct {
 	// ResolveTime is the time that the htlc was resolved (settled or failed
 	// back).
 	ResolveTime time.Time
+
+	// CustomRecords is list of the custom tlv records.
+	CustomRecords map[uint64][]byte
 }
 
 // LookupInvoice looks up an invoice in lnd, it will error if the invoice is
@@ -1240,6 +1243,7 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 			invoiceHtlc.ResolveTime = time.Unix(htlc.ResolveTime, 0)
 		}
 
+		invoiceHtlc.CustomRecords = htlc.CustomRecords
 		invoice.Htlcs[i] = invoiceHtlc
 	}
 
