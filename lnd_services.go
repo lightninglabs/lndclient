@@ -26,21 +26,17 @@ var (
 	// call to find out if lnd is fully synced to its chain backend.
 	chainSyncPollInterval = 5 * time.Second
 
-	// defaultUnlockedInterval is the default amount of time we wait between
-	// checks that the wallet is unlocked.
-	defaultUnlockedInterval = 5 * time.Second
-
 	// minimalCompatibleVersion is the minimum version and build tags
 	// required in lnd to get all functionality implemented in lndclient.
 	// Users can provide their own, specific version if needed. If only a
 	// subset of the lndclient functionality is needed, the required build
 	// tags can be adjusted accordingly. This default will be used as a fall
 	// back version if none is specified in the configuration.
-	// TODO(carla): bump to 0.12 once cut
+	// TODO(guggero): bump to 0.13 once cut
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor:  0,
-		AppMinor:  11,
-		AppPatch:  1,
+		AppMinor:  12,
+		AppPatch:  99,
 		BuildTags: DefaultBuildTags,
 	}
 
@@ -107,12 +103,6 @@ type LndServicesConfig struct {
 	// block until lnd is unlocked.
 	BlockUntilUnlocked bool
 
-	// UnlockInterval sets the interval at which we will query lnd to
-	// determine whether lnd is unlocked when BlockUntilUnlocked is true.
-	// This value is optional, and will be replaced with a default if it is
-	// zero.
-	UnlockInterval time.Duration
-
 	// CallerCtx is an optional context that can be passed if the caller
 	// would like to be able to cancel the long waits involved in starting
 	// up the client, such as waiting for chain sync to complete when
@@ -135,6 +125,7 @@ type LndServices struct {
 	Invoices      InvoicesClient
 	Router        RouterClient
 	Versioner     VersionerClient
+	State         StateClient
 
 	ChainParams *chaincfg.Params
 	NodeAlias   string
@@ -234,6 +225,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	if err != nil {
 		return nil, err
 	}
+	basicClient := lnrpc.NewLightningClient(conn)
+	stateClient := newStateClient(conn, readonlyMac)
+	versionerClient := newVersionerClient(conn, readonlyMac)
 
 	cleanupConn := func() {
 		closeErr := conn.Close()
@@ -244,8 +238,8 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	// Get lnd's info, blocking until lnd is unlocked if required.
 	info, err := getLndInfo(
-		cfg.CallerCtx, lnrpc.NewLightningClient(conn), readonlyMac,
-		cfg.BlockUntilUnlocked, cfg.UnlockInterval,
+		cfg.CallerCtx, basicClient, readonlyMac, stateClient,
+		cfg.BlockUntilUnlocked,
 	)
 	if err != nil {
 		cleanupConn()
@@ -285,9 +279,6 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	)
 	invoicesClient := newInvoicesClient(conn, macaroons[invoiceMacFilename])
 	routerClient := newRouterClient(conn, macaroons[routerMacFilename])
-	versionerClient := newVersionerClient(
-		conn, macaroons[readonlyMacFilename],
-	)
 
 	cleanup := func() {
 		log.Debugf("Closing lnd connection")
@@ -411,75 +402,76 @@ func (s *GrpcLndServices) waitForChainSync(ctx context.Context) error {
 // and back off if the failure is due to lnd currently being locked. Otherwise,
 // it will fail fast on any errors returned. We use the raw ln client so that
 // we can set specific grpc options we need to wait for lnd to be ready.
-func getLndInfo(ctx context.Context, ln lnrpc.LightningClient,
-	readonlyMac serializedMacaroon, waitForUnlocked bool,
-	waitInterval time.Duration) (*Info, error) {
-
-	if waitInterval == 0 {
-		waitInterval = defaultUnlockedInterval
-	}
+func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
+	readonlyMac serializedMacaroon, stateClient StateClient,
+	waitForUnlocked bool) (*Info, error) {
 
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	if waitForUnlocked {
-		log.Info("Waiting for lnd to unlock")
+	// We expect the initial connection to already have succeeded. So we
+	// know lnd is responding. Therefore we can now just subscribe to the
+	// state update RPC. With the new unified unlocker RPC the server
+	// shouldn't shut down/close on us during the unlocking phase.
+	//
+	// All we have to do is to interpret the states that lnd could be in
+	// during the unlock:
+	// Locked: lnd is currently locked or no wallet exist
+	//   -> WalletStateNonExisting, WalletStateLocked
+	// Unlocking: lnd has just been unlocked, -> WalletStateUnlocked
+	// Unlocked, ok: lnd is unlocked and ready
+	//   -> WalletStateRpcActive
+	// Unlocked, not ok: lnd is unlocked but in bad state, err
+	stateChan, errChan, err := stateClient.SubscribeState(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error subscribing to lnd wallet "+
+			"state: %w", err)
 	}
 
-	for {
-		// There are a few states that lnd could be in here:
-		// Down: lnd is not listening for requests, err Unavailable
-		// Locked: lnd is currently locked, err Unimplemented
-		// Unlocking: lnd has just been unlocked, err Unavailable
-		// Unlocked, ok: lnd is unlocked, no error
-		// Unlocked, not ok: lnd is unlocked but in bad state, err
-		//
-		// We call getinfo with our WaitForReady option, which waits
-		// for temporary errors (such as the error we get when lnd is
-		// unlocking) to resolve, but will timeout on permanent errors
-		// (such as lnd being permanently down). We use our wait
-		// interval as a deadline for our context so that we will fail
-		// within that period when lnd is down.
-		rpcCtx, cancel := context.WithTimeout(ctx, waitInterval)
-		info, err := ln.GetInfo(
-			readonlyMac.WithMacaroonAuth(rpcCtx),
+	getInfo := func() (*Info, error) {
+		// We've made a connection and (possibly) unlocked lnd. All that
+		// is left to do is to query and return the node information.
+		info, err := basicClient.GetInfo(
+			readonlyMac.WithMacaroonAuth(ctx),
 			&lnrpc.GetInfoRequest{},
-			grpc.WaitForReady(waitForUnlocked),
 		)
-		cancel()
-		if err == nil {
-			return newInfo(info)
-		}
-
-		// If we do not want to wait for lnd to be unlocked, we just
-		// fail immediately on any error.
-		if !waitForUnlocked {
+		if err != nil {
 			return nil, err
 		}
 
-		// If we do not get a rpc error code, something else is wrong
-		// with the call, so we fail.
-		rpcErrorCode, ok := status.FromError(err)
-		if !ok {
-			return nil, err
-		}
+		return newInfo(info)
+	}
 
-		// If we did not get an unimplemented error, indicating that
-		// lnd is locked, we fail because something else is wrong, and
-		// we expect our wait until ready to catch race conditions where
-		// the server is in the process of unlocking.
-		if rpcErrorCode.Code() != codes.Unimplemented {
-			return nil, err
-		}
+	// If we don't want to wait for the unlock we exit the function early
+	// and will try to return the node info below. This could fail if the
+	// node is indeed still locked so this flag doesn't make a lot of sense
+	// anymore...
+	if !waitForUnlocked {
+		return getInfo()
+	}
 
-		// At this point, we know lnd is locked, so we wait for our
-		// interval, exiting if context is cancelled.
+	// If we do want to wait for the unlock, we need to consume the state
+	// updates now.
+	log.Info("Waiting for lnd to unlock")
+	for {
 		select {
+		case state := <-stateChan:
+			log.Infof("Wallet state of lnd is now: %v", state)
+
+			// Once we reach the final state we can break out of the
+			// loop.
+			if state == WalletStateRpcActive {
+				return getInfo()
+			}
+
+		case err := <-errChan:
+			log.Errorf("Error while waiting for lnd to be "+
+				"unlocked: %v", err)
+			return nil, err
+
 		case <-ctx.Done():
 			return nil, ctx.Err()
-
-		case <-time.After(waitInterval):
 		}
 	}
 }
@@ -640,7 +632,6 @@ var (
 )
 
 func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
-
 	// Load the specified TLS certificate and build transport credentials
 	// with it.
 	tlsPath := cfg.TLSPath
