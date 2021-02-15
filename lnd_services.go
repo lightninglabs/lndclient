@@ -141,7 +141,7 @@ type LndServices struct {
 	NodePubkey  [33]byte
 	Version     *verrpc.Version
 
-	macaroons *macaroonPouch
+	macaroons macaroonPouch
 }
 
 // GrpcLndServices constitutes a set of required RPC services.
@@ -229,7 +229,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// are enabled, then not all macaroons might be there and the user would
 	// get a more cryptic error message.
 	readonlyMac, err := loadMacaroon(
-		macaroonDir, defaultReadonlyFilename, cfg.CustomMacaroonPath,
+		macaroonDir, readonlyMacFilename, cfg.CustomMacaroonPath,
 	)
 	if err != nil {
 		return nil, err
@@ -271,17 +271,23 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// With the macaroons loaded and the version checked, we can now create
 	// the real lightning client which uses the admin macaroon.
 	lightningClient := newLightningClient(
-		conn, chainParams, macaroons.adminMac,
+		conn, chainParams, macaroons[adminMacFilename],
 	)
 
 	// With the network check passed, we'll now initialize the rest of the
 	// sub-server connections, giving each of them their specific macaroon.
-	notifierClient := newChainNotifierClient(conn, macaroons.chainMac)
-	signerClient := newSignerClient(conn, macaroons.signerMac)
-	walletKitClient := newWalletKitClient(conn, macaroons.walletKitMac)
-	invoicesClient := newInvoicesClient(conn, macaroons.invoiceMac)
-	routerClient := newRouterClient(conn, macaroons.routerMac)
-	versionerClient := newVersionerClient(conn, macaroons.readonlyMac)
+	notifierClient := newChainNotifierClient(
+		conn, macaroons[chainMacFilename],
+	)
+	signerClient := newSignerClient(conn, macaroons[signerMacFilename])
+	walletKitClient := newWalletKitClient(
+		conn, macaroons[walletKitMacFilename],
+	)
+	invoicesClient := newInvoicesClient(conn, macaroons[invoiceMacFilename])
+	routerClient := newRouterClient(conn, macaroons[routerMacFilename])
+	versionerClient := newVersionerClient(
+		conn, macaroons[readonlyMacFilename],
+	)
 
 	cleanup := func() {
 		log.Debugf("Closing lnd connection")
@@ -620,13 +626,13 @@ var (
 	defaultDataDir     = "data"
 	defaultChainSubDir = "chain"
 
-	defaultAdminMacaroonFilename     = "admin.macaroon"
-	defaultInvoiceMacaroonFilename   = "invoices.macaroon"
-	defaultChainMacaroonFilename     = "chainnotifier.macaroon"
-	defaultWalletKitMacaroonFilename = "walletkit.macaroon"
-	defaultRouterMacaroonFilename    = "router.macaroon"
-	defaultSignerFilename            = "signer.macaroon"
-	defaultReadonlyFilename          = "readonly.macaroon"
+	adminMacFilename     = "admin.macaroon"
+	invoiceMacFilename   = "invoices.macaroon"
+	chainMacFilename     = "chainnotifier.macaroon"
+	walletKitMacFilename = "walletkit.macaroon"
+	routerMacFilename    = "router.macaroon"
+	signerMacFilename    = "signer.macaroon"
+	readonlyMacFilename  = "readonly.macaroon"
 
 	// maxMsgRecvSize is the largest gRPC message our client will receive.
 	// We set this to 200MiB.
