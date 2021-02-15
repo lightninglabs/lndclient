@@ -29,7 +29,7 @@ type basicClientOptions struct {
 // defaults.
 func defaultBasicClientOptions() *basicClientOptions {
 	return &basicClientOptions{
-		macFilename: defaultAdminMacaroonFilename,
+		macFilename: adminMacFilename,
 	}
 }
 
