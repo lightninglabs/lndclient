@@ -167,8 +167,11 @@ func TestLndVersionCheckComparison(t *testing.T) {
 // determine the unlocked state of lnd.
 type lockLNDMock struct {
 	lnrpc.LightningClient
+	StateClient
 	callCount int
 	errors    []error
+	stateErr  error
+	states    []WalletState
 }
 
 // GetInfo mocks a call to getinfo, using our call count to get the error for
@@ -190,18 +193,47 @@ func (l *lockLNDMock) GetInfo(ctx context.Context, _ *lnrpc.GetInfoRequest,
 	}, err
 }
 
-func newLockLndMock(errors []error) *lockLNDMock {
+func (l *lockLNDMock) SubscribeState(context.Context) (chan WalletState,
+	chan error, error) {
+
+	if l.stateErr != nil {
+		return nil, nil, l.stateErr
+	}
+
+	stateChan := make(chan WalletState, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		for _, state := range l.states {
+			stateChan <- state
+
+			// If this is the final state, no more states will be
+			// sent to us and we can close the subscription.
+			if state == WalletStateRpcActive {
+				close(stateChan)
+				close(errChan)
+
+				return
+			}
+		}
+	}()
+
+	return stateChan, errChan, nil
+}
+
+func newLockLndMock(errors []error, stateErr error,
+	states []WalletState) *lockLNDMock {
+
 	return &lockLNDMock{
-		errors: errors,
+		errors:   errors,
+		stateErr: stateErr,
+		states:   states,
 	}
 }
 
 // TestGetLndInfo tests our logic for querying lnd for information in the case
 // where we wait for the wallet to unlock, and when we fail fast.
 func TestGetLndInfo(t *testing.T) {
-	// Override our default so that we don't have long waits in tests.
-	defaultUnlockedInterval = 1
-
 	var (
 		ctx       = context.Background()
 		nonNilErr = errors.New("failed")
@@ -212,19 +244,30 @@ func TestGetLndInfo(t *testing.T) {
 		name         string
 		context      context.Context
 		waitUnlocked bool
+		stateErr     error
+		states       []WalletState
 		errors       []error
 		expected     error
 	}{
 		{
-			name:     "no error",
-			context:  ctx,
-			errors:   []error{nil},
+			name:    "no error",
+			context: ctx,
+			errors:  []error{nil},
+			states: []WalletState{
+				WalletStateWaitingToStart,
+				WalletStateLocked,
+				WalletStateUnlocked,
+				WalletStateRpcActive,
+			},
 			expected: nil,
 		},
 		{
 			name: "nil context",
 			errors: []error{
 				nil,
+			},
+			states: []WalletState{
+				WalletStateRpcActive,
 			},
 			expected: nil,
 		},
@@ -236,28 +279,26 @@ func TestGetLndInfo(t *testing.T) {
 		{
 			name:         "wait for unlock",
 			waitUnlocked: true,
-			errors:       []error{unlockErr, nil},
-			expected:     nil,
-		},
-		{
-			name:         "multiple unlock errors",
-			waitUnlocked: true,
-			errors:       []error{unlockErr, unlockErr, nil},
-			expected:     nil,
+			errors:       []error{nil},
+			states: []WalletState{
+				WalletStateRpcActive,
+			},
+			expected: nil,
 		},
 		{
 			name:         "lnd down",
 			waitUnlocked: true,
-			errors: []error{
-				context.DeadlineExceeded,
-			},
-			expected: context.DeadlineExceeded,
+			stateErr:     context.DeadlineExceeded,
+			expected:     context.DeadlineExceeded,
 		},
 		{
 			name:         "other error",
 			waitUnlocked: true,
 			errors:       []error{nonNilErr},
-			expected:     nonNilErr,
+			states: []WalletState{
+				WalletStateRpcActive,
+			},
+			expected: nonNilErr,
 		},
 	}
 
@@ -265,14 +306,23 @@ func TestGetLndInfo(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			mock := newLockLndMock(test.errors)
+			mock := newLockLndMock(
+				test.errors, test.stateErr, test.states,
+			)
 
 			_, err := getLndInfo(
-				test.context, mock, "readonlymac",
-				test.waitUnlocked, 0,
+				test.context, mock, "readonlymac", mock,
+				test.waitUnlocked,
 			)
-			require.Equal(t, test.expected, err)
-			require.Equal(t, len(test.errors), mock.callCount)
+
+			if test.expected == nil {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+
+				// Error might be wrapped.
+				require.True(t, errors.Is(err, test.expected))
+			}
 		})
 	}
 }
