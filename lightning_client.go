@@ -276,6 +276,9 @@ type ChannelInfo struct {
 	// NumPendingHtlcs is the count of pending htlcs on this channel.
 	NumPendingHtlcs int
 
+	// PendingHtlcs stores the pending HTLCs (amount and direction).
+	PendingHtlcs []PendingHtlc
+
 	// CSVDelay is the csv delay for our funds.
 	CSVDelay uint64
 
@@ -301,7 +304,7 @@ func newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo, error) {
 		return nil, err
 	}
 
-	return &ChannelInfo{
+	chanInfo := &ChannelInfo{
 		ChannelPoint:     channel.ChannelPoint,
 		Active:           channel.Active,
 		ChannelID:        channel.ChanId,
@@ -331,7 +334,17 @@ func newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo, error) {
 		RemoteConstraints: newChannelConstraint(
 			channel.RemoteConstraints,
 		),
-	}, nil
+	}
+
+	chanInfo.PendingHtlcs = make([]PendingHtlc, len(channel.PendingHtlcs))
+	for i, htlc := range channel.PendingHtlcs {
+		chanInfo.PendingHtlcs[i] = PendingHtlc{
+			Incoming: htlc.Incoming,
+			Amount:   btcutil.Amount(htlc.Amount),
+		}
+	}
+
+	return chanInfo, nil
 }
 
 // ChannelConstraints contains information about the restraints place on a
@@ -1308,6 +1321,15 @@ type InvoiceHtlc struct {
 	// ResolveTime is the time that the htlc was resolved (settled or failed
 	// back).
 	ResolveTime time.Time
+}
+
+// PendingHtlc represents a HTLC that is currently pending on some channel.
+type PendingHtlc struct {
+	// Incoming is true if the HTLC is incoming.
+	Incoming bool
+
+	// Amount is the amount in satoshis that this HTLC represents.
+	Amount btcutil.Amount
 }
 
 // LookupInvoice looks up an invoice in lnd, it will error if the invoice is
