@@ -41,8 +41,8 @@ var (
 	// back version if none is specified in the configuration.
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor:  0,
-		AppMinor:  11,
-		AppPatch:  1,
+		AppMinor:  12,
+		AppPatch:  0,
 		BuildTags: DefaultBuildTags,
 	}
 
