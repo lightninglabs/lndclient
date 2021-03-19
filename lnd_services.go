@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -137,7 +138,7 @@ type LndServices struct {
 
 	ChainParams *chaincfg.Params
 	NodeAlias   string
-	NodePubkey  [33]byte
+	NodePubkey  route.Vertex
 	Version     *verrpc.Version
 
 	macaroons *macaroonPouch
@@ -309,7 +310,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 			Versioner:     versionerClient,
 			ChainParams:   chainParams,
 			NodeAlias:     nodeAlias,
-			NodePubkey:    nodeKey,
+			NodePubkey:    route.Vertex(nodeKey),
 			Version:       version,
 			macaroons:     macaroons,
 		},
