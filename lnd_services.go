@@ -85,12 +85,19 @@ type LndServicesConfig struct {
 	Network Network
 
 	// MacaroonDir is the directory where all lnd macaroons can be found.
-	// Either this or CustomMacaroonPath can be specified but not both.
+	// Either this, CustomMacaroonPath, or CustomMacaroonHex should be set,
+	// but only one of them, depending on macaroon preferences.
 	MacaroonDir string
 
 	// CustomMacaroonPath is the full path to a custom macaroon file. Either
-	// this or MacaroonDir can be specified but not both.
+	// this, MacaroonDir, or CustomMacaroonHex should be set, but only one
+	// of them.
 	CustomMacaroonPath string
+
+	// CustomMacaroonHex is a hexadecimal encoded macaroon string. Either
+	// this, MacaroonDir, or CustomMacaroonPath should be set, but only
+	// one of them.
+	CustomMacaroonHex string
 
 	// TLSPath is the path to lnd's TLS certificate file.
 	TLSPath string
@@ -173,12 +180,24 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		cfg.CheckVersion = minimalCompatibleVersion
 	}
 
-	// We don't allow setting both the macaroon directory and the custom
-	// macaroon path. If both are empty, that's fine, the default behavior
-	// is to use lnd's default directory to try to locate the macaroons.
-	if cfg.MacaroonDir != "" && cfg.CustomMacaroonPath != "" {
-		return nil, fmt.Errorf("must set either MacaroonDir or " +
-			"CustomMacaroonPath but not both")
+	// Of the macaroon directory, the custom macaroon path, and the custom
+	// macaroon hex, we only allow one to be set at once. If all are empty,
+	// that's fine, the default behavior is to use lnd's default directory
+	// to try to locate the macaroons.
+	macaroonOptions := []string{
+		cfg.MacaroonDir,
+		cfg.CustomMacaroonPath,
+		cfg.CustomMacaroonHex,
+	}
+	macOptionCount := 0
+	for _, option := range macaroonOptions {
+		if option != "" {
+			macOptionCount++
+		}
+	}
+	if macOptionCount > 1 {
+		return nil, fmt.Errorf("must set only one: MacaroonDir, " +
+			"CustomMacaroonPath, or CustomMacaroonHex")
 	}
 
 	// Based on the network, if the macaroon directory isn't set, then
@@ -236,11 +255,16 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// macaroon. We don't use the pouch yet because if not all subservers
 	// are enabled, then not all macaroons might be there and the user would
 	// get a more cryptic error message.
-	readonlyMac, err := loadMacaroon(
-		macaroonDir, readonlyMacFilename, cfg.CustomMacaroonPath,
-	)
-	if err != nil {
-		return nil, err
+	var readonlyMac serializedMacaroon
+	if cfg.CustomMacaroonHex != "" {
+		readonlyMac = serializedMacaroon(cfg.CustomMacaroonHex)
+	} else {
+		readonlyMac, err = loadMacaroon(
+			macaroonDir, readonlyMacFilename, cfg.CustomMacaroonPath,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	timeout := defaultRPCTimeout
@@ -279,7 +303,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	// Now that we've ensured our macaroon directory is set properly, we
 	// can retrieve our full macaroon pouch from the directory.
-	macaroons, err := newMacaroonPouch(macaroonDir, cfg.CustomMacaroonPath)
+	macaroons, err := newMacaroonPouch(
+		macaroonDir, cfg.CustomMacaroonPath, cfg.CustomMacaroonHex,
+	)
 	if err != nil {
 		cleanupConn()
 		return nil, fmt.Errorf("unable to obtain macaroons: %v", err)
