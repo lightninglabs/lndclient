@@ -72,7 +72,7 @@ type macaroonPouch map[string]serializedMacaroon
 
 // newMacaroonPouch returns a new instance of a fully populated macaroonPouch
 // given the directory where all the macaroons are stored.
-func newMacaroonPouch(macaroonDir, customMacPath string) (macaroonPouch,
+func newMacaroonPouch(macaroonDir, customMacPath, customMacHex string) (macaroonPouch,
 	error) {
 
 	// If a custom macaroon is specified, we assume it contains all
@@ -83,6 +83,19 @@ func newMacaroonPouch(macaroonDir, customMacPath string) (macaroonPouch,
 		if err != nil {
 			return nil, err
 		}
+
+		return macaroonPouch{
+			invoiceMacFilename:   mac,
+			chainMacFilename:     mac,
+			signerMacFilename:    mac,
+			walletKitMacFilename: mac,
+			routerMacFilename:    mac,
+			adminMacFilename:     mac,
+			readonlyMacFilename:  mac,
+		}, nil
+
+	} else if customMacHex != "" {
+		mac := serializedMacaroon(customMacHex)
 
 		return macaroonPouch{
 			invoiceMacFilename:   mac,
