@@ -326,3 +326,29 @@ func TestGetLndInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestCustomMacaroonHex(t *testing.T) {
+	dummyMacStr := "0201047465737402067788991234560000062052d26ed139ea5af8" +
+		"3e675500c4ccb2471f62191b745bab820f129e5588a255d2"
+
+	// Test that MacaroonPouch adds the macaroon hex string properly.
+	macaroons, err := newMacaroonPouch(
+		"", "", dummyMacStr,
+	)
+	require.NoError(t, err)
+
+	require.Equal(
+		t, macaroons[invoiceMacFilename], serializedMacaroon(dummyMacStr),
+		"macaroon hex string not set correctly",
+	)
+
+	// If both CustomMacaroonHex and MacaroonDir are set, creating
+	// NewLndServices should fail.
+	testCfg := &LndServicesConfig{
+		MacaroonDir:       "/testdir",
+		CustomMacaroonHex: dummyMacStr,
+	}
+
+	_, err = NewLndServices(testCfg)
+	require.Error(t, err)
+}
