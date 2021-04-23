@@ -33,6 +33,11 @@ type RouterClient interface {
 	TrackPayment(ctx context.Context, hash lntypes.Hash) (
 		chan PaymentStatus, chan error, error)
 
+	// EstimateRouteFee uses the channel router's internal state to estimate
+	// the routing cost of the given amount to the destination node.
+	EstimateRouteFee(ctx context.Context, dest route.Vertex,
+		amt btcutil.Amount) (lnwire.MilliSatoshi, error)
+
 	// SubscribeHtlcEvents subscribes to a stream of htlc events from the
 	// router.
 	SubscribeHtlcEvents(ctx context.Context) (<-chan *routerrpc.HtlcEvent,
@@ -289,6 +294,25 @@ func (r *routerClient) trackPayment(ctx context.Context,
 	}()
 
 	return statusChan, errorChan, nil
+}
+
+// EstimateRouteFee uses the channel router's internal state to estimate the
+// routing cost of the given amount to the destination node.
+func (r *routerClient) EstimateRouteFee(ctx context.Context, dest route.Vertex,
+	amt btcutil.Amount) (lnwire.MilliSatoshi, error) {
+
+	rpcCtx := r.routerKitMac.WithMacaroonAuth(ctx)
+	rpcReq := &routerrpc.RouteFeeRequest{
+		Dest:   dest[:],
+		AmtSat: int64(amt),
+	}
+
+	rpcRes, err := r.client.EstimateRouteFee(rpcCtx, rpcReq)
+	if err != nil {
+		return 0, err
+	}
+
+	return lnwire.MilliSatoshi(rpcRes.RoutingFeeMsat), nil
 }
 
 // unmarshallPaymentStatus converts an rpc status update to the PaymentStatus
