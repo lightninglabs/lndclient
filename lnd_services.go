@@ -2,9 +2,13 @@ package lndclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -99,8 +103,21 @@ type LndServicesConfig struct {
 	// one of them.
 	CustomMacaroonHex string
 
-	// TLSPath is the path to lnd's TLS certificate file.
+	// TLSPath is the path to lnd's TLS certificate file. Only this or
+	// TLSData can be set, not both.
 	TLSPath string
+
+	// TLSData holds the TLS certificate data. Only this or TLSPath can be
+	// set, not both.
+	TLSData string
+
+	// Insecure can be checked if we don't need to use tls, such as if
+	// we're connecting to lnd via a bufconn, then we'll skip verification.
+	Insecure bool
+
+	// SystemCert specifies whether we'll fallback to a system cert pool
+	// for tls.
+	SystemCert bool
 
 	// CheckVersion is the minimum version the connected lnd node needs to
 	// be in order to be compatible. The node will be checked against this
@@ -739,16 +756,11 @@ var (
 )
 
 func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
-	// Load the specified TLS certificate and build transport credentials
-	// with it.
-	tlsPath := cfg.TLSPath
-	if tlsPath == "" {
-		tlsPath = defaultTLSCertPath
-	}
-
-	creds, err := credentials.NewClientTLSFromFile(tlsPath, "")
+	creds, err := GetTLSCredentials(
+		cfg.TLSData, cfg.TLSPath, cfg.Insecure, cfg.SystemCert,
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to get tls creds: %v", err)
 	}
 
 	// Create a dial options array.
@@ -768,4 +780,79 @@ func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
 	}
 
 	return conn, nil
+}
+
+// GetTLSCredentials gets the tls credentials, whether provided as straight-up
+// data or a path to a certificate file.
+func GetTLSCredentials(tlsData, tlsPath string, insecure, systemCert bool) (
+	credentials.TransportCredentials, error) {
+
+	if tlsPath != "" && tlsData != "" {
+		return nil, fmt.Errorf("must set only one: TLSPath or TLSData")
+	}
+
+	var creds credentials.TransportCredentials
+	var err error
+
+	// We'll determine if the tls certificate is passed in directly as
+	// data, by a path, or try the system's certificate chain, and then
+	// load it.
+	switch {
+	case insecure:
+		// If we don't need to use tls, such as if we're connecting to
+		// lnd via a bufconn, then we'll skip verification.
+		creds = credentials.NewTLS(&tls.Config{
+			InsecureSkipVerify: true, // nolint:gosec
+		})
+
+	case systemCert:
+		// Fallback to the system pool. Using an empty tls config is an
+		// alternative to x509.SystemCertPool(), which is not supported
+		// on Windows.
+		creds = credentials.NewTLS(&tls.Config{})
+
+	case tlsData != "":
+		tlsBytes := []byte(tlsData)
+
+		block, _ := pem.Decode(tlsBytes)
+		if block == nil || block.Type != "CERTIFICATE" {
+			return nil, errors.New("failed to decode PEM block " +
+				"containing tls certificate")
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		pool := x509.NewCertPool()
+		pool.AddCert(cert)
+
+		// Load the specified TLS certificate and build transport
+		// credentials.
+		creds = credentials.NewClientTLSFromCert(pool, "")
+
+	case tlsPath != "":
+		creds, err = credentials.NewClientTLSFromFile(tlsPath, "")
+		if err != nil {
+			return nil, err
+		}
+
+	default:
+		// If neither tlsData nor tlsPath were set, we'll try the default
+		// lnd tls cert path.
+		if _, err := os.Stat(defaultTLSCertPath); err == nil {
+			creds, err = credentials.NewClientTLSFromFile(
+				defaultTLSCertPath, "",
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		} else {
+			return nil, err
+		}
+	}
+
+	return creds, err
 }
