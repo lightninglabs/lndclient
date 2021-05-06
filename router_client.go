@@ -140,14 +140,16 @@ type SendPaymentRequest struct {
 type routerClient struct {
 	client       routerrpc.RouterClient
 	routerKitMac serializedMacaroon
+	timeout      time.Duration
 }
 
 func newRouterClient(conn *grpc.ClientConn,
-	routerKitMac serializedMacaroon) *routerClient {
+	routerKitMac serializedMacaroon, timeout time.Duration) *routerClient {
 
 	return &routerClient{
 		client:       routerrpc.NewRouterClient(conn),
 		routerKitMac: routerKitMac,
+		timeout:      timeout,
 	}
 }
 
