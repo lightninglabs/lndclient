@@ -21,7 +21,8 @@ import (
 )
 
 var (
-	rpcTimeout = 30 * time.Second
+	// defaultRPCTimeout is the default timeout used for rpc calls.
+	defaultRPCTimeout = 30 * time.Second
 
 	// chainSyncPollInterval is the interval in which we poll the GetInfo
 	// call to find out if lnd is fully synced to its chain backend.
@@ -121,6 +122,11 @@ type LndServicesConfig struct {
 	// passed in and its Done() channel sends a message, these waits will
 	// be aborted. This allows a client to still be shut down properly.
 	CallerCtx context.Context
+
+	// RPCTimeout is an optional custom timeout that will be used for rpc
+	// calls to lnd. If this value is not set, it will default to 30
+	// seconds.
+	RPCTimeout time.Duration
 }
 
 // DialerFunc is a function that is used as grpc.WithContextDialer().
@@ -252,8 +258,13 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		return nil, err
 	}
 
+	timeout := defaultRPCTimeout
+	if cfg.RPCTimeout == 0 {
+		timeout = cfg.RPCTimeout
+	}
+
 	nodeAlias, nodeKey, version, err := checkLndCompatibility(
-		conn, readonlyMac, info, cfg.Network, cfg.CheckVersion,
+		conn, readonlyMac, info, cfg.Network, cfg.CheckVersion, timeout,
 	)
 	if err != nil {
 		cleanupConn()
@@ -271,17 +282,23 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// With the macaroons loaded and the version checked, we can now create
 	// the real lightning client which uses the admin macaroon.
 	lightningClient := newLightningClient(
-		conn, chainParams, macaroons.adminMac,
+		conn, timeout, chainParams, macaroons.adminMac,
 	)
 
 	// With the network check passed, we'll now initialize the rest of the
 	// sub-server connections, giving each of them their specific macaroon.
-	notifierClient := newChainNotifierClient(conn, macaroons.chainMac)
-	signerClient := newSignerClient(conn, macaroons.signerMac)
-	walletKitClient := newWalletKitClient(conn, macaroons.walletKitMac)
-	invoicesClient := newInvoicesClient(conn, macaroons.invoiceMac)
-	routerClient := newRouterClient(conn, macaroons.routerMac)
-	versionerClient := newVersionerClient(conn, macaroons.readonlyMac)
+	notifierClient := newChainNotifierClient(
+		conn, macaroons.chainMac, timeout,
+	)
+	signerClient := newSignerClient(conn, macaroons.signerMac, timeout)
+	walletKitClient := newWalletKitClient(
+		conn, macaroons.walletKitMac, timeout,
+	)
+	invoicesClient := newInvoicesClient(conn, macaroons.invoiceMac, timeout)
+	routerClient := newRouterClient(conn, macaroons.routerMac, timeout)
+	versionerClient := newVersionerClient(
+		conn, macaroons.readonlyMac, timeout,
+	)
 
 	cleanup := func() {
 		log.Debugf("Closing lnd connection")
@@ -327,7 +344,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		log.Infof("Waiting for lnd to be fully synced to its chain " +
 			"backend, this might take a while")
 
-		err := services.waitForChainSync(cfg.CallerCtx)
+		err := services.waitForChainSync(cfg.CallerCtx, timeout)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("error waiting for chain to "+
@@ -351,7 +368,9 @@ func (s *GrpcLndServices) Close() {
 // waitForChainSync waits and blocks until the connected lnd node is fully
 // synced to its chain backend. This could theoretically take hours if the
 // initial block download is still in progress.
-func (s *GrpcLndServices) waitForChainSync(ctx context.Context) error {
+func (s *GrpcLndServices) waitForChainSync(ctx context.Context,
+	timeout time.Duration) error {
+
 	mainCtx := ctx
 	if mainCtx == nil {
 		mainCtx = context.Background()
@@ -367,7 +386,7 @@ func (s *GrpcLndServices) waitForChainSync(ctx context.Context) error {
 			// too long, that can be a sign of something being wrong
 			// with the node. That's why we don't wait any longer
 			// than a few seconds for each individual GetInfo call.
-			ctxt, cancel := context.WithTimeout(mainCtx, rpcTimeout)
+			ctxt, cancel := context.WithTimeout(mainCtx, timeout)
 			info, err := s.Client.GetInfo(ctxt)
 			if err != nil {
 				cancel()
@@ -483,7 +502,8 @@ func getLndInfo(ctx context.Context, ln lnrpc.LightningClient,
 // version and supports all required build tags/subservers.
 func checkLndCompatibility(conn *grpc.ClientConn,
 	readonlyMac serializedMacaroon, info *Info, network Network,
-	minVersion *verrpc.Version) (string, [33]byte, *verrpc.Version, error) {
+	minVersion *verrpc.Version, timeout time.Duration) (string,
+	[33]byte, *verrpc.Version, error) {
 
 	// onErr is a closure that simplifies returning multiple values in the
 	// error case.
@@ -509,7 +529,7 @@ func checkLndCompatibility(conn *grpc.ClientConn,
 
 	// We use our own clients with a readonly macaroon here, because we know
 	// that's all we need for the checks.
-	versionerClient := newVersionerClient(conn, readonlyMac)
+	versionerClient := newVersionerClient(conn, readonlyMac, timeout)
 
 	// Now let's also check the version of the connected lnd node.
 	version, err := checkVersionCompatibility(versionerClient, minVersion)

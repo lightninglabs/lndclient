@@ -837,15 +837,17 @@ type lightningClient struct {
 	client   lnrpc.LightningClient
 	wg       sync.WaitGroup
 	params   *chaincfg.Params
+	timeout  time.Duration
 	adminMac serializedMacaroon
 }
 
-func newLightningClient(conn *grpc.ClientConn,
+func newLightningClient(conn *grpc.ClientConn, timeout time.Duration,
 	params *chaincfg.Params, adminMac serializedMacaroon) *lightningClient {
 
 	return &lightningClient{
 		client:   lnrpc.NewLightningClient(conn),
 		params:   params,
+		timeout:  timeout,
 		adminMac: adminMac,
 	}
 }
@@ -866,7 +868,7 @@ func (s *lightningClient) WaitForFinished() {
 func (s *lightningClient) WalletBalance(ctx context.Context) (
 	*WalletBalance, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -882,7 +884,7 @@ func (s *lightningClient) WalletBalance(ctx context.Context) (
 }
 
 func (s *lightningClient) GetInfo(ctx context.Context) (*Info, error) {
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -923,7 +925,7 @@ func (s *lightningClient) EstimateFeeToP2WSH(ctx context.Context,
 	amt btcutil.Amount, confTarget int32) (btcutil.Amount,
 	error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	// Generate dummy p2wsh address for fee estimation.
@@ -1089,7 +1091,7 @@ func (s *lightningClient) payInvoice(ctx context.Context, invoice string,
 func (s *lightningClient) AddInvoice(ctx context.Context,
 	in *invoicesrpc.AddInvoiceData) (lntypes.Hash, string, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcIn := &lnrpc.Invoice{
@@ -1209,7 +1211,7 @@ type PendingHtlc struct {
 func (s *lightningClient) LookupInvoice(ctx context.Context,
 	hash lntypes.Hash) (*Invoice, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcIn := &lnrpc.PaymentHash{
@@ -1307,7 +1309,7 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
 	endHeight int32) ([]Transaction, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -1351,7 +1353,7 @@ func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
 func (s *lightningClient) ListChannels(ctx context.Context) (
 	[]ChannelInfo, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	response, err := s.client.ListChannels(
@@ -1462,7 +1464,7 @@ type WaitingCloseChannel struct {
 func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels,
 	error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	resp, err := s.client.PendingChannels(
@@ -1587,7 +1589,7 @@ func getClosedChannel(closeSummary *lnrpc.ChannelCloseSummary) (
 func (s *lightningClient) ClosedChannels(ctx context.Context) ([]ClosedChannel,
 	error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	response, err := s.client.ClosedChannels(
@@ -1734,7 +1736,7 @@ type ForwardingEvent struct {
 func (s *lightningClient) ForwardingHistory(ctx context.Context,
 	req ForwardingHistoryRequest) (*ForwardingHistoryResponse, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	response, err := s.client.ForwardingHistory(
@@ -1801,7 +1803,7 @@ type ListInvoicesResponse struct {
 func (s *lightningClient) ListInvoices(ctx context.Context,
 	req ListInvoicesRequest) (*ListInvoicesResponse, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	resp, err := s.client.ListInvoices(
@@ -1897,7 +1899,7 @@ type ListPaymentsResponse struct {
 func (s *lightningClient) ListPayments(ctx context.Context,
 	req ListPaymentsRequest) (*ListPaymentsResponse, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	resp, err := s.client.ListPayments(
@@ -1960,7 +1962,7 @@ func (s *lightningClient) ListPayments(ctx context.Context,
 func (s *lightningClient) ChannelBackup(ctx context.Context,
 	channelPoint wire.OutPoint) ([]byte, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -1983,7 +1985,7 @@ func (s *lightningClient) ChannelBackup(ctx context.Context,
 // ChannelBackups retrieves backups for all existing pending open and open
 // channels. The backups are returned as an encrypted chanbackup.Multi payload.
 func (s *lightningClient) ChannelBackups(ctx context.Context) ([]byte, error) {
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2194,7 +2196,7 @@ type PaymentRequest struct {
 func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
 	payReq string) (*PaymentRequest, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2242,7 +2244,7 @@ func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
 func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
 	localSat, pushSat btcutil.Amount, private bool) (*wire.OutPoint, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2464,7 +2466,7 @@ type PolicyUpdateRequest struct {
 func (s *lightningClient) UpdateChanPolicy(ctx context.Context,
 	req PolicyUpdateRequest, chanPoint *wire.OutPoint) error {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2576,7 +2578,7 @@ func getRoutingPolicy(policy *lnrpc.RoutingPolicy) *RoutingPolicy {
 func (s *lightningClient) GetChanInfo(ctx context.Context, channelId uint64) (
 	*ChannelEdge, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2617,7 +2619,7 @@ func newChannelEdge(rpcRes *lnrpc.ChannelEdge) (*ChannelEdge, error) {
 func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
 	error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2655,7 +2657,7 @@ func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
 func (s *lightningClient) Connect(ctx context.Context, peer route.Vertex,
 	host string, permanent bool) error {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2679,7 +2681,7 @@ func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
 	amount btcutil.Amount, sendAll bool, confTarget int32,
 	satsPerByte int64, label string) (string, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2705,7 +2707,7 @@ func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
 func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
 	error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2727,7 +2729,7 @@ func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
 func (s *lightningClient) GetNodeInfo(ctx context.Context, pubkey route.Vertex,
 	includeChannels bool) (*NodeInfo, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2768,7 +2770,7 @@ func (s *lightningClient) GetNodeInfo(ctx context.Context, pubkey route.Vertex,
 func (s *lightningClient) DescribeGraph(ctx context.Context,
 	includeUnannounced bool) (*Graph, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
@@ -2954,7 +2956,7 @@ func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
 func (s *lightningClient) NetworkInfo(ctx context.Context) (*NetworkInfo,
 	error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)

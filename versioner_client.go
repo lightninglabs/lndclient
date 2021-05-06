@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"google.golang.org/grpc"
@@ -19,14 +20,16 @@ type VersionerClient interface {
 type versionerClient struct {
 	client      verrpc.VersionerClient
 	readonlyMac serializedMacaroon
+	timeout     time.Duration
 }
 
 func newVersionerClient(conn *grpc.ClientConn,
-	readonlyMac serializedMacaroon) *versionerClient {
+	readonlyMac serializedMacaroon, timeout time.Duration) *versionerClient {
 
 	return &versionerClient{
 		client:      verrpc.NewVersionerClient(conn),
 		readonlyMac: readonlyMac,
+		timeout:     timeout,
 	}
 }
 
@@ -38,7 +41,7 @@ func (v *versionerClient) GetVersion(ctx context.Context) (*verrpc.Version,
 	error) {
 
 	rpcCtx, cancel := context.WithTimeout(
-		v.readonlyMac.WithMacaroonAuth(ctx), rpcTimeout,
+		v.readonlyMac.WithMacaroonAuth(ctx), v.timeout,
 	)
 	defer cancel()
 	return v.client.GetVersion(rpcCtx, &verrpc.VersionRequest{})

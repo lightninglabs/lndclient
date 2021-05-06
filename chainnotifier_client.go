@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -29,14 +30,18 @@ type ChainNotifierClient interface {
 type chainNotifierClient struct {
 	client   chainrpc.ChainNotifierClient
 	chainMac serializedMacaroon
+	timeout  time.Duration
 
 	wg sync.WaitGroup
 }
 
-func newChainNotifierClient(conn *grpc.ClientConn, chainMac serializedMacaroon) *chainNotifierClient {
+func newChainNotifierClient(conn *grpc.ClientConn,
+	chainMac serializedMacaroon, timeout time.Duration) *chainNotifierClient {
+
 	return &chainNotifierClient{
 		client:   chainrpc.NewChainNotifierClient(conn),
 		chainMac: chainMac,
+		timeout:  timeout,
 	}
 }
 

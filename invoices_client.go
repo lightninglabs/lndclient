@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -35,10 +36,13 @@ type InvoiceUpdate struct {
 type invoicesClient struct {
 	client     invoicesrpc.InvoicesClient
 	invoiceMac serializedMacaroon
+	timeout    time.Duration
 	wg         sync.WaitGroup
 }
 
-func newInvoicesClient(conn *grpc.ClientConn, invoiceMac serializedMacaroon) *invoicesClient {
+func newInvoicesClient(conn *grpc.ClientConn,
+	invoiceMac serializedMacaroon, timeout time.Duration) *invoicesClient {
+
 	return &invoicesClient{
 		client:     invoicesrpc.NewInvoicesClient(conn),
 		invoiceMac: invoiceMac,
@@ -52,7 +56,7 @@ func (s *invoicesClient) WaitForFinished() {
 func (s *invoicesClient) SettleInvoice(ctx context.Context,
 	preimage lntypes.Preimage) error {
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx := s.invoiceMac.WithMacaroonAuth(timeoutCtx)
@@ -66,7 +70,7 @@ func (s *invoicesClient) SettleInvoice(ctx context.Context,
 func (s *invoicesClient) CancelInvoice(ctx context.Context,
 	hash lntypes.Hash) error {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcCtx = s.invoiceMac.WithMacaroonAuth(rpcCtx)
@@ -128,7 +132,7 @@ func (s *invoicesClient) SubscribeSingleInvoice(ctx context.Context,
 func (s *invoicesClient) AddHoldInvoice(ctx context.Context,
 	in *invoicesrpc.AddInvoiceData) (string, error) {
 
-	rpcCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	rpcIn := &invoicesrpc.AddHoldInvoiceRequest{
