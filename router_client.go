@@ -57,6 +57,8 @@ type PaymentStatus struct {
 	Value         lnwire.MilliSatoshi
 	InFlightAmt   lnwire.MilliSatoshi
 	InFlightHtlcs int
+
+	Htlcs []*HtlcAttempt
 }
 
 func (p PaymentStatus) String() string {
@@ -67,6 +69,111 @@ func (p PaymentStatus) String() string {
 	}
 
 	return text
+}
+
+// HtlcAttempt provides information about a htlc sent as part of a payment.
+type HtlcAttempt struct {
+	// The status of the HTLC.
+	Status lnrpc.HTLCAttempt_HTLCStatus
+
+	// The route taken by this HTLC.
+	Route *lnrpc.Route
+
+	// AttemptTime is the time that the htlc was dispatched.
+	AttemptTime time.Time
+
+	// ResolveTime is the time the htlc was settled or failed.
+	ResolveTime time.Time
+
+	// Failure will be non-nil if the htlc failed, and provides more
+	// information about the payment failure.
+	Failure *HtlcFailure
+
+	// Preimage is the preimage that was used to settle the payment.
+	Preimage lntypes.Preimage
+}
+
+// AmountInFlight returns the amount in flight for this htlc attempt that
+// contributes to paying the final recipient, if any.
+func (h *HtlcAttempt) AmountInFlight() lnwire.MilliSatoshi {
+	if h.Status != lnrpc.HTLCAttempt_IN_FLIGHT {
+		return 0
+	}
+
+	if h.Route == nil || h.Route.Hops == nil {
+		return 0
+	}
+
+	lastHop := h.Route.Hops[len(h.Route.Hops)-1]
+	return lnwire.MilliSatoshi(lastHop.AmtToForwardMsat)
+}
+
+// String returns a string representation of a htlc attempt.
+func (h *HtlcAttempt) String() string {
+	return fmt.Sprintf("Htlc attempt status: %v, attempted at: %v, "+
+		"resolved at: %v, preimage: %v", h.Status, h.AttemptTime,
+		h.ResolveTime, h.Preimage)
+}
+
+// NewHtlcAttempt creates a htlc attempt from its rpc counterpart.
+func NewHtlcAttempt(rpcAttempt *lnrpc.HTLCAttempt) (*HtlcAttempt, error) {
+	attempt := &HtlcAttempt{
+		Status: rpcAttempt.Status,
+		Route:  rpcAttempt.Route,
+	}
+
+	if rpcAttempt.AttemptTimeNs != 0 {
+		attempt.AttemptTime = time.Unix(0, rpcAttempt.AttemptTimeNs)
+	}
+
+	if rpcAttempt.ResolveTimeNs != 0 {
+		attempt.ResolveTime = time.Unix(0, rpcAttempt.ResolveTimeNs)
+	}
+
+	if rpcAttempt.Failure != nil {
+		attempt.Failure = NewHtlcFailure(rpcAttempt.Failure)
+	}
+
+	if rpcAttempt.Preimage != nil {
+		var err error
+		attempt.Preimage, err = lntypes.MakePreimage(
+			rpcAttempt.Preimage,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return attempt, nil
+}
+
+// HtlcFailure provides information about a htlc attempt failure.
+type HtlcFailure struct {
+	// Code is the failure code as defined in the lightning spec.
+	Code lnrpc.Failure_FailureCode
+
+	// FailureSourceIndex is the position in the path of the intermediate
+	// or final node that generated the failure message. A value of 0
+	// indicates that the failure occurred at the sender.
+	FailureSourceIndex uint32
+}
+
+// String returns a string representation of a htlc failure.
+func (h *HtlcFailure) String() string {
+	return fmt.Sprintf("Htlc failure code: %v, index: %v", h.Code,
+		h.FailureSourceIndex)
+}
+
+// NewHtlcFailure creates a htlc failure from its rpc counterpart.
+func NewHtlcFailure(rpcFailure *lnrpc.Failure) *HtlcFailure {
+	if rpcFailure == nil {
+		return nil
+	}
+
+	return &HtlcFailure{
+		Code:               rpcFailure.Code,
+		FailureSourceIndex: rpcFailure.FailureSourceIndex,
+	}
 }
 
 // SendPaymentRequest defines the payment parameters for a new payment.
@@ -324,6 +431,7 @@ func unmarshallPaymentStatus(rpcPayment *lnrpc.Payment) (
 
 	status := PaymentStatus{
 		State: rpcPayment.Status,
+		Htlcs: make([]*HtlcAttempt, len(rpcPayment.Htlcs)),
 	}
 
 	switch status.State {
@@ -342,17 +450,19 @@ func unmarshallPaymentStatus(rpcPayment *lnrpc.Payment) (
 		status.FailureReason = rpcPayment.FailureReason
 	}
 
-	for _, htlc := range rpcPayment.Htlcs {
+	for i, htlc := range rpcPayment.Htlcs {
+		attempt, err := NewHtlcAttempt(htlc)
+		if err != nil {
+			return nil, err
+		}
+		status.Htlcs[i] = attempt
+
 		if htlc.Status != lnrpc.HTLCAttempt_IN_FLIGHT {
 			continue
 		}
 
 		status.InFlightHtlcs++
-
-		lastHop := htlc.Route.Hops[len(htlc.Route.Hops)-1]
-		status.InFlightAmt += lnwire.MilliSatoshi(
-			lastHop.AmtToForwardMsat,
-		)
+		status.InFlightAmt += attempt.AmountInFlight()
 	}
 
 	return &status, nil
