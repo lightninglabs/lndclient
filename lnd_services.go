@@ -259,7 +259,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	}
 
 	timeout := defaultRPCTimeout
-	if cfg.RPCTimeout == 0 {
+	if cfg.RPCTimeout != 0 {
 		timeout = cfg.RPCTimeout
 	}
 
