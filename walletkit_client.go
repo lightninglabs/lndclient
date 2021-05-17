@@ -328,7 +328,7 @@ func (m *walletKitClient) EstimateFee(ctx context.Context, confTarget int32) (
 
 	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
 	resp, err := m.client.EstimateFee(rpcCtx, &walletrpc.EstimateFeeRequest{
-		ConfTarget: int32(confTarget),
+		ConfTarget: confTarget,
 	})
 	if err != nil {
 		return 0, err

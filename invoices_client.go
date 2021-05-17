@@ -46,6 +46,7 @@ func newInvoicesClient(conn *grpc.ClientConn,
 	return &invoicesClient{
 		client:     invoicesrpc.NewInvoicesClient(conn),
 		invoiceMac: invoiceMac,
+		timeout:    timeout,
 	}
 }
 

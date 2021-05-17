@@ -121,7 +121,7 @@ type LightningClient interface {
 
 	// GetChanInfo returns the channel info for the passed channel,
 	// including the routing policy for both end.
-	GetChanInfo(ctx context.Context, chanId uint64) (*ChannelEdge, error)
+	GetChanInfo(ctx context.Context, chanID uint64) (*ChannelEdge, error)
 
 	// ListPeers gets a list the peers we are currently connected to.
 	ListPeers(ctx context.Context) ([]Peer, error)
@@ -2000,8 +2000,8 @@ func (s *lightningClient) ChannelBackups(ctx context.Context) ([]byte, error) {
 
 // getOutPoint is a helper go convert a hash and output index to
 // a wire.OutPoint object.
-func getOutPoint(txId []byte, idx uint32) (*wire.OutPoint, error) {
-	hash, err := chainhash.NewHash(txId)
+func getOutPoint(txID []byte, idx uint32) (*wire.OutPoint, error) {
+	hash, err := chainhash.NewHash(txID)
 	if err != nil {
 		return nil, err
 	}
@@ -2052,10 +2052,10 @@ func getChannelEventUpdate(rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
 	case lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL:
 		result.UpdateType = ActiveChannelUpdate
 		channelPoint := rpcChannelEventUpdate.GetActiveChannel()
-		fundingTxId := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
+		fundingTxID := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
 
 		result.ChannelPoint, err = getOutPoint(
-			fundingTxId.FundingTxidBytes,
+			fundingTxID.FundingTxidBytes,
 			channelPoint.OutputIndex,
 		)
 		if err != nil {
@@ -2065,10 +2065,10 @@ func getChannelEventUpdate(rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
 	case lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL:
 		result.UpdateType = InactiveChannelUpdate
 		channelPoint := rpcChannelEventUpdate.GetInactiveChannel()
-		fundingTxId := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
+		fundingTxID := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
 
 		result.ChannelPoint, err = getOutPoint(
-			fundingTxId.FundingTxidBytes,
+			fundingTxID.FundingTxidBytes,
 			channelPoint.OutputIndex,
 		)
 		if err != nil {
@@ -2488,7 +2488,7 @@ func (s *lightningClient) UpdateChanPolicy(ctx context.Context,
 			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 				FundingTxidBytes: chanPoint.Hash[:],
 			},
-			OutputIndex: uint32(chanPoint.Index),
+			OutputIndex: chanPoint.Index,
 		}
 		rpcReq.Scope = &lnrpc.PolicyUpdateRequest_ChanPoint{
 			ChanPoint: rpcChanPoint,
@@ -2532,10 +2532,10 @@ type RoutingPolicy struct {
 
 // ChannelEdge holds the channel edge information and routing policies.
 type ChannelEdge struct {
-	// The unique channel ID for the channel. The first 3 bytes are the
-	// block height, the next 3 the index within the block, and the last
-	// 2 bytes are the output index for the channel.
-	ChannelId uint64
+	// ChannelID is the unique channel ID for the channel. The first 3 bytes
+	// are the block height, the next 3 the index within the block, and the
+	// last 2 bytes are the output index for the channel.
+	ChannelID uint64
 
 	// ChannelPoint is the funding outpoint of the channel.
 	ChannelPoint string
@@ -2575,7 +2575,7 @@ func getRoutingPolicy(policy *lnrpc.RoutingPolicy) *RoutingPolicy {
 
 // GetChanInfo returns the channel info for the passed channel, including the
 // routing policy for both end.
-func (s *lightningClient) GetChanInfo(ctx context.Context, channelId uint64) (
+func (s *lightningClient) GetChanInfo(ctx context.Context, channelID uint64) (
 	*ChannelEdge, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
@@ -2584,7 +2584,7 @@ func (s *lightningClient) GetChanInfo(ctx context.Context, channelId uint64) (
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
 
 	rpcRes, err := s.client.GetChanInfo(rpcCtx, &lnrpc.ChanInfoRequest{
-		ChanId: channelId,
+		ChanId: channelID,
 	})
 	if err != nil {
 		return nil, err
@@ -2605,7 +2605,7 @@ func newChannelEdge(rpcRes *lnrpc.ChannelEdge) (*ChannelEdge, error) {
 	}
 
 	return &ChannelEdge{
-		ChannelId:    rpcRes.ChannelId,
+		ChannelID:    rpcRes.ChannelId,
 		ChannelPoint: rpcRes.ChanPoint,
 		Capacity:     btcutil.Amount(rpcRes.Capacity),
 		Node1:        vertex1,
