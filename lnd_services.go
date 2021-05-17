@@ -34,11 +34,10 @@ var (
 	// subset of the lndclient functionality is needed, the required build
 	// tags can be adjusted accordingly. This default will be used as a fall
 	// back version if none is specified in the configuration.
-	// TODO(guggero): bump to 0.13 once cut
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor:  0,
-		AppMinor:  12,
-		AppPatch:  99,
+		AppMinor:  13,
+		AppPatch:  0,
 		BuildTags: DefaultBuildTags,
 	}
 
