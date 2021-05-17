@@ -111,8 +111,8 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 				return
 			}
 
-			switch c := spendEvent.Event.(type) {
-			case *chainrpc.SpendEvent_Spend:
+			c, ok := spendEvent.Event.(*chainrpc.SpendEvent_Spend)
+			if ok {
 				err := processSpendDetail(c.Spend)
 				if err != nil {
 					errChan <- err
