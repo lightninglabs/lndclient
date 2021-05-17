@@ -120,6 +120,7 @@ func newSignerClient(conn *grpc.ClientConn,
 	return &signerClient{
 		client:    signrpc.NewSignerClient(conn),
 		signerMac: signerMac,
+		timeout:   timeout,
 	}
 }
 
