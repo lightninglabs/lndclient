@@ -36,9 +36,9 @@ const (
 	// been unlocked but the RPC server isn't yet fully started up.
 	WalletStateUnlocked WalletState = 2
 
-	// WalletStateRpcActive denotes that lnd is now fully ready to receive
+	// WalletStateRPCActive denotes that lnd is now fully ready to receive
 	// RPC requests other than wallet unlocking operations.
-	WalletStateRpcActive WalletState = 3
+	WalletStateRPCActive WalletState = 3
 
 	// WalletStateWaitingToStart indicates that lnd is at the beginning of
 	// the startup process. In a cluster environment this may mean that
@@ -59,7 +59,7 @@ func (s WalletState) String() string {
 	case WalletStateUnlocked:
 		return "Wallet is unlocked"
 
-	case WalletStateRpcActive:
+	case WalletStateRPCActive:
 		return "Lnd is ready for requests"
 
 	case WalletStateWaitingToStart:
@@ -79,7 +79,7 @@ type stateClient struct {
 }
 
 // newStateClient returns a new stateClient.
-func newStateClient(conn *grpc.ClientConn,
+func newStateClient(conn grpc.ClientConnInterface,
 	readonlyMac serializedMacaroon) *stateClient {
 
 	return &stateClient{
@@ -132,7 +132,7 @@ func (s *stateClient) SubscribeState(ctx context.Context) (chan WalletState,
 
 			// If this is the final state, no more states will be
 			// sent to us and we can close the subscription.
-			if state == WalletStateRpcActive {
+			if state == WalletStateRPCActive {
 				close(stateChan)
 				close(errChan)
 
@@ -172,7 +172,7 @@ func unmarshalWalletState(rpcState lnrpc.WalletState) (WalletState, error) {
 		return WalletStateUnlocked, nil
 
 	case lnrpc.WalletState_RPC_ACTIVE:
-		return WalletStateRpcActive, nil
+		return WalletStateRPCActive, nil
 
 	default:
 		return 0, fmt.Errorf("unknown wallet state: %d", rpcState)

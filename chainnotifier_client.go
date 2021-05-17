@@ -35,7 +35,7 @@ type chainNotifierClient struct {
 	wg sync.WaitGroup
 }
 
-func newChainNotifierClient(conn *grpc.ClientConn,
+func newChainNotifierClient(conn grpc.ClientConnInterface,
 	chainMac serializedMacaroon, timeout time.Duration) *chainNotifierClient {
 
 	return &chainNotifierClient{
