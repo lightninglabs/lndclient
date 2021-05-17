@@ -23,7 +23,7 @@ type versionerClient struct {
 	timeout     time.Duration
 }
 
-func newVersionerClient(conn *grpc.ClientConn,
+func newVersionerClient(conn grpc.ClientConnInterface,
 	readonlyMac serializedMacaroon, timeout time.Duration) *versionerClient {
 
 	return &versionerClient{
