@@ -1045,7 +1045,7 @@ type lightningClient struct {
 	adminMac serializedMacaroon
 }
 
-func newLightningClient(conn *grpc.ClientConn, timeout time.Duration,
+func newLightningClient(conn grpc.ClientConnInterface, timeout time.Duration,
 	params *chaincfg.Params, adminMac serializedMacaroon) *lightningClient {
 
 	return &lightningClient{
@@ -2924,7 +2924,7 @@ func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
 	}
 
 	return &ChannelBalance{
-		Balance:        btcutil.Amount(resp.Balance), // nolint:staticcheck
+		Balance:        btcutil.Amount(resp.Balance),            // nolint:staticcheck
 		PendingBalance: btcutil.Amount(resp.PendingOpenBalance), // nolint:staticcheck
 	}, nil
 }

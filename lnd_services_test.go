@@ -209,7 +209,7 @@ func (l *lockLNDMock) SubscribeState(context.Context) (chan WalletState,
 
 			// If this is the final state, no more states will be
 			// sent to us and we can close the subscription.
-			if state == WalletStateRpcActive {
+			if state == WalletStateRPCActive {
 				close(stateChan)
 				close(errChan)
 
@@ -257,7 +257,7 @@ func TestGetLndInfo(t *testing.T) {
 				WalletStateWaitingToStart,
 				WalletStateLocked,
 				WalletStateUnlocked,
-				WalletStateRpcActive,
+				WalletStateRPCActive,
 			},
 			expected: nil,
 		},
@@ -267,7 +267,7 @@ func TestGetLndInfo(t *testing.T) {
 				nil,
 			},
 			states: []WalletState{
-				WalletStateRpcActive,
+				WalletStateRPCActive,
 			},
 			expected: nil,
 		},
@@ -281,7 +281,7 @@ func TestGetLndInfo(t *testing.T) {
 			waitUnlocked: true,
 			errors:       []error{nil},
 			states: []WalletState{
-				WalletStateRpcActive,
+				WalletStateRPCActive,
 			},
 			expected: nil,
 		},
@@ -296,7 +296,7 @@ func TestGetLndInfo(t *testing.T) {
 			waitUnlocked: true,
 			errors:       []error{nonNilErr},
 			states: []WalletState{
-				WalletStateRpcActive,
+				WalletStateRPCActive,
 			},
 			expected: nonNilErr,
 		},
