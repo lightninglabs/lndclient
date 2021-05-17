@@ -26,7 +26,8 @@ The current compatibility matrix reads as follows:
 
 | `lndclient` git tag          | `lnd` version in `go.mod` | minimum required `lnd` version | 
 | ---------------------------- | ------------------------- | ------------------------------ |
-| [`v0.12.0-0`](https://github.com/lightninglabs/lndclient/blob/v0.12.0-0) | `1efef51268d6` | `v0.11.1-beta` |
+| [`v0.13.0-1`](https://github.com/lightninglabs/lndclient/blob/v0.13.0-1) | `v0.13.0-beta.rc2` | `v0.13.0-beta` |
+| [`v0.12.0-7`](https://github.com/lightninglabs/lndclient/blob/v0.12.0-7) | `v0.12.0-beta` | `v0.12.0-beta` |
 | `master` / [`v0.11.1-5`](https://github.com/lightninglabs/lndclient/blob/v0.11.1-5) | `v0.11.1-beta` | `v0.11.1-beta` | 
 
 
