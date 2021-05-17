@@ -82,7 +82,7 @@ type walletKitClient struct {
 // WalletKitClient interface.
 var _ WalletKitClient = (*walletKitClient)(nil)
 
-func newWalletKitClient(conn *grpc.ClientConn,
+func newWalletKitClient(conn grpc.ClientConnInterface,
 	walletKitMac serializedMacaroon, timeout time.Duration) *walletKitClient {
 
 	return &walletKitClient{

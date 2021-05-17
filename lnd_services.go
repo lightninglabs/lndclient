@@ -452,7 +452,7 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 	//   -> WalletStateNonExisting, WalletStateLocked
 	// Unlocking: lnd has just been unlocked, -> WalletStateUnlocked
 	// Unlocked, ok: lnd is unlocked and ready
-	//   -> WalletStateRpcActive
+	//   -> WalletStateRPCActive
 	// Unlocked, not ok: lnd is unlocked but in bad state, err
 	stateChan, errChan, err := stateClient.SubscribeState(ctx)
 	if err != nil {
@@ -503,7 +503,7 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 
 			// Once we reach the final state we can break out of the
 			// loop.
-			if state == WalletStateRpcActive {
+			if state == WalletStateRPCActive {
 				return getInfo()
 			}
 
@@ -556,7 +556,7 @@ func IsUnlockError(err error) bool {
 // checkLndCompatibility makes sure the connected lnd instance is running on the
 // correct network, has the version RPC implemented, is the correct minimal
 // version and supports all required build tags/subservers.
-func checkLndCompatibility(conn *grpc.ClientConn,
+func checkLndCompatibility(conn grpc.ClientConnInterface,
 	readonlyMac serializedMacaroon, info *Info, network Network,
 	minVersion *verrpc.Version, timeout time.Duration) (string,
 	[33]byte, *verrpc.Version, error) {
