@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -64,6 +65,16 @@ var (
 	// required for lndclient to work.
 	DefaultBuildTags = []string{
 		"signrpc", "walletrpc", "chainrpc", "invoicesrpc",
+	}
+
+	// lnd13UnlockErrors is the list of errors that lnd 0.13 and later
+	// returns when the wallet is locked or not ready yet.
+	lnd13UnlockErrors = []string{
+		"waiting to start, RPC services not available",
+		"wallet not created, create one to enable full RPC access",
+		"wallet locked, unlock it to enable full RPC access",
+		"the RPC server is in the process of starting up, but not " +
+			"yet ready to accept calls",
 	}
 )
 
@@ -448,6 +459,14 @@ func getLndInfo(ctx context.Context, ln lnrpc.LightningClient,
 		// Unlocked, ok: lnd is unlocked, no error
 		// Unlocked, not ok: lnd is unlocked but in bad state, err
 		//
+		// For nodes of version 0.13 and later, we don't get any of the
+		// Unimplemented/Unavailable codes anymore since the RPC server
+		// is up the whole time. Instead we need to look at the error
+		// message itself. We can't just use the state RPC in that case
+		// either because that would mean we'd need to pull in the 0.13
+		// version of lnd which we want to avoid with the different
+		// branches of lndclient.
+		//
 		// We call getinfo with our WaitForReady option, which waits
 		// for temporary errors (such as the error we get when lnd is
 		// unlocking) to resolve, but will timeout on permanent errors
@@ -471,18 +490,10 @@ func getLndInfo(ctx context.Context, ln lnrpc.LightningClient,
 			return nil, err
 		}
 
-		// If we do not get a rpc error code, something else is wrong
-		// with the call, so we fail.
-		rpcErrorCode, ok := status.FromError(err)
-		if !ok {
-			return nil, err
-		}
-
-		// If we did not get an unimplemented error, indicating that
-		// lnd is locked, we fail because something else is wrong, and
-		// we expect our wait until ready to catch race conditions where
-		// the server is in the process of unlocking.
-		if rpcErrorCode.Code() != codes.Unimplemented {
+		// Is the error somehow related to unlocking? Then we'll wait
+		// once more. If not, it's probably a terminal problem and we
+		// abort the wait.
+		if !IsUnlockError(err) {
 			return nil, err
 		}
 
@@ -495,6 +506,41 @@ func getLndInfo(ctx context.Context, ln lnrpc.LightningClient,
 		case <-time.After(waitInterval):
 		}
 	}
+}
+
+// IsUnlockError returns true if the given error is one that lnd returns when
+// its wallet is locked, either before version 0.13 or after.
+func IsUnlockError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Is the error one that lnd 0.13 returns when it's locked?
+	errStr := err.Error()
+	for _, lnd13Err := range lnd13UnlockErrors {
+		if strings.Contains(errStr, lnd13Err) {
+			return true
+		}
+	}
+
+	// If we do not get a rpc error code, something else is wrong with the
+	// call, so we fail.
+	rpcErrorCode, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+
+	// Unimplemented means we're hitting the GetInfo RPC while the wallet
+	// unlocker RPC is still up. Unavailable can be returned in the short
+	// window of time while the unlocker shuts down and the main RPC server
+	// is started.
+	if rpcErrorCode.Code() == codes.Unimplemented ||
+		rpcErrorCode.Code() == codes.Unavailable {
+
+		return true
+	}
+
+	return false
 }
 
 // checkLndCompatibility makes sure the connected lnd instance is running on the
