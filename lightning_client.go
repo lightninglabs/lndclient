@@ -168,6 +168,11 @@ type LightningClient interface {
 	// macaroon permissions that are required to access them.
 	ListPermissions(ctx context.Context) (map[string][]MacaroonPermission,
 		error)
+
+	// QueryRoutes can query LND to return a route (with fees) between two
+	// vertices.
+	QueryRoutes(ctx context.Context, req QueryRoutesRequest) (
+		*QueryRoutesResponse, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -806,16 +811,84 @@ type NetworkInfo struct {
 	NumZombieChans uint64
 }
 
-var (
-	// ErrMalformedServerResponse is returned when the swap and/or prepay
-	// invoice is malformed.
-	ErrMalformedServerResponse = errors.New(
-		"one or more invoices are malformed",
-	)
+// QueryRoutesRequest is the request of a QueryRoutes call.
+type QueryRoutesRequest struct {
+	// Source is the optional source vertex of the route.
+	Source *route.Vertex
 
-	// ErrNoRouteToServer is returned if no quote can returned because there
-	// is no route to the server.
-	ErrNoRouteToServer = errors.New("no off-chain route to server")
+	// PubKey is the destination vertex.
+	PubKey route.Vertex
+
+	// LastHop is the optional last hop before the destination.
+	LastHop *route.Vertex
+
+	// RouteHints represents the different routing hints that can be used to
+	// assist the router. These hints will act as optional intermediate hops
+	// along the route.
+	RouteHints [][]zpay32.HopHint
+
+	// MaxCltv when set is used the the CLTV limit.
+	MaxCltv *uint32
+
+	// UseMissionControl if set to true, edge probabilities from mission
+	// control will be used to get the optimal route.
+	UseMissionControl bool
+
+	// AmtMsat is the amount we'd like to send along the route in
+	// millisatoshis.
+	AmtMsat lnwire.MilliSatoshi
+
+	// FeeLimitMsat is the fee limit to use in millisatoshis.
+	FeeLimitMsat lnwire.MilliSatoshi
+}
+
+// Hop holds details about a single hop along a route.
+type Hop struct {
+	// ChannelID is the short channel ID of the forwarding channel.
+	ChannelID uint64
+
+	// Capacity is the channel capacity.
+	Capacity btcutil.Amount
+
+	// Expiry is the timelock value.
+	Expiry uint32
+
+	// AmtToForwardMsat is the forwarded amount for this hop.
+	AmtToForwardMsat lnwire.MilliSatoshi
+
+	// FeeMsat is the forwarding fee for this hop.
+	FeeMsat lnwire.MilliSatoshi
+
+	// PubKey is an optional public key of the hop. If the public key is
+	// given, the payment can be executed without relying on a copy of the
+	// channel graph.
+	PubKey *route.Vertex
+}
+
+// QueryRoutesResponse is the response of a QueryRoutes call.
+type QueryRoutesResponse struct {
+	// TotalTimeLock is the cumulative (final) time lock across the entire
+	// route. This is the CLTV value that should be extended to the first
+	// hop in the route. All other hops will decrement the time-lock as
+	// advertised, leaving enough time for all hops to wait for or present
+	// the payment preimage to complete the payment.
+	TotalTimeLock uint32
+
+	// Hops contains details concerning the specific forwarding details at
+	// each hop.
+	Hops []*Hop
+
+	// TotalFeesMsat is the total fees in millisatoshis.
+	TotalFeesMsat lnwire.MilliSatoshi
+
+	// TotalAmtMsat is the total amount in millisatoshis.
+	TotalAmtMsat lnwire.MilliSatoshi
+}
+
+var (
+	// ErrNoRouteFound is returned if we can't find a path with the passed
+	// parameters.
+	ErrNoRouteFound = errors.New("no route found")
 
 	// PaymentResultUnknownPaymentHash is the string result returned by
 	// SendPayment when the final node indicates the hash is unknown.
@@ -3097,4 +3170,89 @@ func (s *lightningClient) ListPermissions(
 	}
 
 	return result, nil
+}
+
+// unmarshallHop unmarshalls a single hop.
+func unmarshallHop(rpcHop *lnrpc.Hop) (*Hop, error) {
+	var pubKey *route.Vertex
+
+	if rpcHop.PubKey != "" {
+		vertex, err := route.NewVertexFromStr(rpcHop.PubKey)
+		if err != nil {
+			return nil, err
+		}
+		pubKey = &vertex
+	}
+
+	return &Hop{
+		ChannelID:        rpcHop.ChanId,
+		Capacity:         btcutil.Amount(rpcHop.ChanCapacity),
+		Expiry:           rpcHop.Expiry,
+		AmtToForwardMsat: lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
+		FeeMsat:          lnwire.MilliSatoshi(rpcHop.FeeMsat),
+		PubKey:           pubKey,
+	}, nil
+}
+
+// QueryRoutes can query LND to return a route (with fees) between two vertices.
+func (s *lightningClient) QueryRoutes(ctx context.Context,
+	req QueryRoutesRequest) (*QueryRoutesResponse, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+	rpcReq := &lnrpc.QueryRoutesRequest{
+		PubKey:  req.PubKey.String(),
+		AmtMsat: int64(req.AmtMsat),
+		FeeLimit: &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_FixedMsat{
+				FixedMsat: int64(req.FeeLimitMsat),
+			},
+		},
+		UseMissionControl: req.UseMissionControl,
+	}
+
+	if req.Source != nil {
+		rpcReq.SourcePubKey = req.Source.String()
+	}
+
+	if req.MaxCltv != nil {
+		rpcReq.CltvLimit = *req.MaxCltv
+	}
+
+	if req.LastHop != nil {
+		rpcReq.LastHopPubkey = req.LastHop[:]
+	}
+
+	var err error
+	rpcReq.RouteHints, err = marshallRouteHints(req.RouteHints)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.QueryRoutes(rpcCtx, rpcReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Routes) == 0 {
+		return nil, ErrNoRouteFound
+	}
+
+	route := resp.Routes[0]
+	hops := make([]*Hop, len(route.Hops))
+	for i, rpcHop := range route.Hops {
+		hops[i], err = unmarshallHop(rpcHop)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &QueryRoutesResponse{
+		TotalTimeLock: route.TotalTimeLock,
+		Hops:          hops,
+		TotalFeesMsat: lnwire.MilliSatoshi(route.TotalFeesMsat),
+		TotalAmtMsat:  lnwire.MilliSatoshi(route.TotalAmtMsat),
+	}, nil
 }
