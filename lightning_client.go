@@ -886,12 +886,6 @@ type QueryRoutesResponse struct {
 }
 
 var (
-	// ErrMalformedServerResponse is returned when the swap and/or prepay
-	// invoice is malformed.
-	ErrMalformedServerResponse = errors.New(
-		"one or more invoices are malformed",
-	)
-
 	// ErrNoRouteFound is returned if we can't find a path with the passed
 	// parameters.
 	ErrNoRouteFound = errors.New("no route found")
