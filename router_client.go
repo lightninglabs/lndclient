@@ -186,6 +186,10 @@ type SendPaymentRequest struct {
 	// MaxFee is the fee limit for this payment.
 	MaxFee btcutil.Amount
 
+	// MaxFeeMsat is the fee limit for this payment in millisatoshis.
+	// MaxFee and MaxFeeMsat are mutually exclusive.
+	MaxFeeMsat lnwire.MilliSatoshi
+
 	// MaxCltv is the maximum timelock for this payment. If nil, there is no
 	// maximum.
 	MaxCltv *int32
@@ -268,6 +272,7 @@ func (r *routerClient) SendPayment(ctx context.Context,
 	rpcCtx := r.routerKitMac.WithMacaroonAuth(ctx)
 	rpcReq := &routerrpc.SendPaymentRequest{
 		FeeLimitSat:      int64(request.MaxFee),
+		FeeLimitMsat:     int64(request.MaxFeeMsat),
 		PaymentRequest:   request.Invoice,
 		TimeoutSeconds:   int32(request.Timeout.Seconds()),
 		MaxParts:         request.MaxParts,
