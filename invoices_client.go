@@ -3,6 +3,7 @@ package lndclient
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"time"
 
@@ -106,6 +107,17 @@ func (s *invoicesClient) SubscribeSingleInvoice(ctx context.Context,
 		for {
 			invoice, err := invoiceStream.Recv()
 			if err != nil {
+				// If we get an EOF error, the invoice has
+				// reached a final state and the server is
+				// finished sending us updates. We close both
+				// channels to signal that we are done sending
+				// values on them and return.
+				if err == io.EOF {
+					close(updateChan)
+					close(errChan)
+					return
+				}
+
 				errChan <- err
 				return
 			}
