@@ -2,6 +2,9 @@ package lndclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -85,15 +88,27 @@ type LndServicesConfig struct {
 	Network Network
 
 	// MacaroonDir is the directory where all lnd macaroons can be found.
-	// Either this or CustomMacaroonPath can be specified but not both.
+	// Either this, CustomMacaroonPath, or CustomMacaroonHex should be set,
+	// but only one of them, depending on macaroon preferences.
 	MacaroonDir string
 
 	// CustomMacaroonPath is the full path to a custom macaroon file. Either
-	// this or MacaroonDir can be specified but not both.
+	// this, MacaroonDir, or CustomMacaroonHex should be set, but only one
+	// of them.
 	CustomMacaroonPath string
 
-	// TLSPath is the path to lnd's TLS certificate file.
+	// CustomMacaroonHex is a hexadecimal encoded macaroon string. Either
+	// this, MacaroonDir, or CustomMacaroonPath should be set, but only
+	// one of them.
+	CustomMacaroonHex string
+
+	// TLSPath is the path to lnd's TLS certificate file. Only this or
+	// TLSData can be set, not both.
 	TLSPath string
+
+	// TLSData holds the TLS certificate data. Only this or TLSPath can be
+	// set, not both.
+	TLSData string
 
 	// CheckVersion is the minimum version the connected lnd node needs to
 	// be in order to be compatible. The node will be checked against this
@@ -173,12 +188,24 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		cfg.CheckVersion = minimalCompatibleVersion
 	}
 
-	// We don't allow setting both the macaroon directory and the custom
-	// macaroon path. If both are empty, that's fine, the default behavior
-	// is to use lnd's default directory to try to locate the macaroons.
-	if cfg.MacaroonDir != "" && cfg.CustomMacaroonPath != "" {
-		return nil, fmt.Errorf("must set either MacaroonDir or " +
-			"CustomMacaroonPath but not both")
+	// Of the macaroon directory, the custom macaroon path, and the custom
+	// macaroon hex, we only allow one to be set at once. If all are empty,
+	// that's fine, the default behavior is to use lnd's default directory
+	// to try to locate the macaroons.
+	macaroonOptions := []string{
+		cfg.MacaroonDir,
+		cfg.CustomMacaroonPath,
+		cfg.CustomMacaroonHex,
+	}
+	macOptionCount := 0
+	for _, option := range macaroonOptions {
+		if option != "" {
+			macOptionCount++
+		}
+	}
+	if macOptionCount > 1 {
+		return nil, fmt.Errorf("must set only one: MacaroonDir, " +
+			"CustomMacaroonPath, or CustomMacaroonHex")
 	}
 
 	// Based on the network, if the macaroon directory isn't set, then
@@ -236,11 +263,16 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// macaroon. We don't use the pouch yet because if not all subservers
 	// are enabled, then not all macaroons might be there and the user would
 	// get a more cryptic error message.
-	readonlyMac, err := loadMacaroon(
-		macaroonDir, readonlyMacFilename, cfg.CustomMacaroonPath,
-	)
-	if err != nil {
-		return nil, err
+	var readonlyMac serializedMacaroon
+	if cfg.CustomMacaroonHex != "" {
+		readonlyMac = serializedMacaroon(cfg.CustomMacaroonHex)
+	} else {
+		readonlyMac, err = loadMacaroon(
+			macaroonDir, readonlyMacFilename, cfg.CustomMacaroonPath,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	timeout := defaultRPCTimeout
@@ -279,7 +311,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	// Now that we've ensured our macaroon directory is set properly, we
 	// can retrieve our full macaroon pouch from the directory.
-	macaroons, err := newMacaroonPouch(macaroonDir, cfg.CustomMacaroonPath)
+	macaroons, err := newMacaroonPouch(
+		macaroonDir, cfg.CustomMacaroonPath, cfg.CustomMacaroonHex,
+	)
 	if err != nil {
 		cleanupConn()
 		return nil, fmt.Errorf("unable to obtain macaroons: %v", err)
@@ -710,16 +744,9 @@ var (
 )
 
 func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
-	// Load the specified TLS certificate and build transport credentials
-	// with it.
-	tlsPath := cfg.TLSPath
-	if tlsPath == "" {
-		tlsPath = defaultTLSCertPath
-	}
-
-	creds, err := credentials.NewClientTLSFromFile(tlsPath, "")
+	creds, err := GetTLSCredentials(cfg.TLSData, cfg.TLSPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to get tls creds: %v", err)
 	}
 
 	// Create a dial options array.
@@ -739,4 +766,59 @@ func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
 	}
 
 	return conn, nil
+}
+
+// GetTLSCredentials gets the tls credentials, whether provided as straight-up
+// data or a path to a certificate file.
+func GetTLSCredentials(tlsData, tlsPath string) (
+	credentials.TransportCredentials, error) {
+
+	if tlsPath != "" && tlsData != "" {
+		return nil, fmt.Errorf("must set only one: TLSPath or TLSData")
+	}
+
+	var creds credentials.TransportCredentials
+	var err error
+
+	// We'll determine if the tls certificate is passed in directly as
+	// data, by a path, or try the system's certificate chain, and then
+	// load it.
+	switch {
+	case tlsData != "":
+		tlsBytes := []byte(tlsData)
+
+		block, _ := pem.Decode(tlsBytes)
+		if block == nil || block.Type != "CERTIFICATE" {
+			return nil, errors.New("failed to decode PEM block " +
+				"containing tls certificate")
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+
+		pool := x509.NewCertPool()
+		pool.AddCert(cert)
+
+		// Load the specified TLS certificate and build transport
+		// credentials.
+		creds = credentials.NewClientTLSFromCert(pool, "")
+	case tlsPath != "":
+		if tlsPath == "" {
+			tlsPath = defaultTLSCertPath
+		}
+
+		creds, err = credentials.NewClientTLSFromFile(tlsPath, "")
+		if err != nil {
+			return nil, err
+		}
+	default:
+		// Fallback to the system pool. Using an empty tls config is an
+		// alternative to x509.SystemCertPool(), which is not supported
+		// on Windows.
+		creds = credentials.NewTLS(&tls.Config{})
+	}
+
+	return creds, err
 }
