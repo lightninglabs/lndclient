@@ -102,7 +102,7 @@ func newMacaroonPouch(macaroonDir, customMacPath string) (macaroonPouch,
 
 	for _, macFileName := range defaultMacaroonFileNames {
 		m[macFileName], err = loadMacaroon(
-			macaroonDir, invoiceMacFilename, customMacPath,
+			macaroonDir, macFileName, customMacPath,
 		)
 		if err != nil {
 			return nil, err
