@@ -3431,7 +3431,7 @@ func unmarshallHop(rpcHop *lnrpc.Hop) (*Hop, error) {
 
 	return &Hop{
 		ChannelID:        rpcHop.ChanId,
-		Capacity:         btcutil.Amount(rpcHop.ChanCapacity),
+		Capacity:         btcutil.Amount(rpcHop.ChanCapacity), // nolint:staticcheck
 		Expiry:           rpcHop.Expiry,
 		AmtToForwardMsat: lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
 		FeeMsat:          lnwire.MilliSatoshi(rpcHop.FeeMsat),
