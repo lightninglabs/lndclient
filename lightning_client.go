@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -868,6 +869,10 @@ type AcceptorRequest struct {
 	// ChannelFlags is a bit-field which the initiator uses to specify proposed
 	// channel behavior.
 	ChannelFlags uint32
+
+	// CommitmentType is the commitment type that the initiator would like
+	// to use for the channel.
+	CommitmentType *lnwallet.CommitmentType
 }
 
 func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
@@ -880,6 +885,32 @@ func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
 
 	var pending [32]byte
 	copy(pending[:], req.PendingChanId)
+
+	var commitmentType *lnwallet.CommitmentType
+	switch req.CommitmentType {
+	case lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE:
+		break
+
+	case lnrpc.CommitmentType_LEGACY:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeLegacy
+
+	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeTweakless
+
+	case lnrpc.CommitmentType_ANCHORS:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx
+
+	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeScriptEnforcedLease
+
+	default:
+		return nil, fmt.Errorf("unhandled commitment type %v",
+			req.CommitmentType)
+	}
 
 	return &AcceptorRequest{
 		NodePubkey:       pk,
@@ -895,6 +926,7 @@ func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
 		CsvDelay:         req.CsvDelay,
 		MaxAcceptedHtlcs: req.MaxAcceptedHtlcs,
 		ChannelFlags:     req.ChannelFlags,
+		CommitmentType:   commitmentType,
 	}, nil
 }
 
