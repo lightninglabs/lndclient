@@ -293,9 +293,14 @@ type ChannelInfo struct {
 
 	// RemoteConstraints is the set of constraints for the remote node.
 	RemoteConstraints *ChannelConstraints
+
+	// CloseAddr is the optional upfront shutdown address set for a
+	// channel.
+	CloseAddr btcutil.Address
 }
 
-func newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo, error) {
+func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
+	error) {
 	remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
 	if err != nil {
 		return nil, err
@@ -338,6 +343,15 @@ func newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo, error) {
 		chanInfo.PendingHtlcs[i] = PendingHtlc{
 			Incoming: htlc.Incoming,
 			Amount:   btcutil.Amount(htlc.Amount),
+		}
+	}
+
+	if channel.CloseAddress != "" {
+		chanInfo.CloseAddr, err = btcutil.DecodeAddress(
+			channel.CloseAddress, s.params,
+		)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -1444,7 +1458,7 @@ func (s *lightningClient) ListChannels(ctx context.Context) (
 
 	result := make([]ChannelInfo, len(response.Channels))
 	for i, channel := range response.Channels {
-		channelInfo, err := newChannelInfo(channel)
+		channelInfo, err := s.newChannelInfo(channel)
 		if err != nil {
 			return nil, err
 		}
@@ -2092,7 +2106,8 @@ func getOutPoint(txID []byte, idx uint32) (*wire.OutPoint, error) {
 
 // getChannelEventUpdate converts an lnrpc.ChannelEventUpdate to the higher
 // level ChannelEventUpdate.
-func getChannelEventUpdate(rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
+func (s *lightningClient) getChannelEventUpdate(
+	rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
 	*ChannelEventUpdate, error) {
 
 	result := &ChannelEventUpdate{}
@@ -2114,7 +2129,7 @@ func getChannelEventUpdate(rpcChannelEventUpdate *lnrpc.ChannelEventUpdate) (
 		result.UpdateType = OpenChannelUpdate
 		channel := rpcChannelEventUpdate.GetOpenChannel()
 
-		result.OpenedChannelInfo, err = newChannelInfo(channel)
+		result.OpenedChannelInfo, err = s.newChannelInfo(channel)
 		if err != nil {
 			return nil, err
 		}
@@ -2189,7 +2204,7 @@ func (s *lightningClient) SubscribeChannelEvents(ctx context.Context) (
 				return
 			}
 
-			update, err := getChannelEventUpdate(rpcUpdate)
+			update, err := s.getChannelEventUpdate(rpcUpdate)
 			if err != nil {
 				errChan <- err
 				return
