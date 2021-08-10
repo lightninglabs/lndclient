@@ -169,6 +169,14 @@ type LightningClient interface {
 	ListPermissions(ctx context.Context) (map[string][]MacaroonPermission,
 		error)
 
+	// ChannelAcceptor create a channel acceptor using the accept function
+	// passed in. The timeout provided will be used to timeout the passed
+	// accept closure when it exceeds the amount of time we allow. Note that
+	// this amount should be strictly less than lnd's chanacceptor timeout
+	// parameter.
+	ChannelAcceptor(ctx context.Context, timeout time.Duration,
+		accept AcceptorFunction) (chan error, error)
+
 	// QueryRoutes can query LND to return a route (with fees) between two
 	// vertices.
 	QueryRoutes(ctx context.Context, req QueryRoutesRequest) (
@@ -823,6 +831,124 @@ type NetworkInfo struct {
 	// NumZombieChans is the number of channels that have been marked as
 	// zombies.
 	NumZombieChans uint64
+}
+
+// AcceptorRequest contains the details of an incoming channel that has been
+// proposed to our node.
+type AcceptorRequest struct {
+	// NodePubkey is the pubkey of the node that wishes to open an inbound
+	// channel.
+	NodePubkey route.Vertex
+
+	// ChainHash is the hash of the genesis block of the relevant chain.
+	ChainHash []byte
+
+	// PendingChanID is the pending channel ID for the channel.
+	PendingChanID [32]byte
+
+	// FundingAmt is the total funding amount.
+	FundingAmt btcutil.Amount
+
+	// PushAmt is the amount pushed by the party pushing the channel.
+	PushAmt btcutil.Amount
+
+	// The dust limit of the initiator's commitment tx.
+	DustLimit btcutil.Amount
+
+	// MaxValueInFlight is the maximum msat amount that can be pending in the
+	// channel.
+	MaxValueInFlight btcutil.Amount
+
+	// ChannelReserve is the minimum amount of satoshis the initiator requires
+	// us to have at all times.
+	ChannelReserve btcutil.Amount
+
+	// MinHtlc is the smallest HTLC in millisatoshis that the initiator will
+	// accept.
+	MinHtlc lnwire.MilliSatoshi
+
+	// FeePerKw is the initial fee rate that the initiator suggests for both
+	// commitment transactions.
+	FeePerKw chainfee.SatPerKWeight
+
+	// CsvDelay is the number of blocks to use for the relative time lock in
+	// the pay-to-self output of both commitment transactions.
+	CsvDelay uint32
+
+	// MaxAcceptedHtlcs is the total number of incoming HTLC's that the
+	// initiator will accept.
+	MaxAcceptedHtlcs uint32
+
+	// ChannelFlags is a bit-field which the initiator uses to specify proposed
+	// channel behavior.
+	ChannelFlags uint32
+}
+
+func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
+	error) {
+
+	pk, err := route.NewVertexFromBytes(req.NodePubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	var pending [32]byte
+	copy(pending[:], req.PendingChanId)
+
+	return &AcceptorRequest{
+		NodePubkey:       pk,
+		ChainHash:        req.ChainHash,
+		PendingChanID:    pending,
+		FundingAmt:       btcutil.Amount(req.FundingAmt),
+		PushAmt:          btcutil.Amount(req.PushAmt),
+		DustLimit:        btcutil.Amount(req.DustLimit),
+		MaxValueInFlight: btcutil.Amount(req.MaxValueInFlight),
+		ChannelReserve:   btcutil.Amount(req.ChannelReserve),
+		MinHtlc:          lnwire.MilliSatoshi(req.MinHtlc),
+		FeePerKw:         chainfee.SatPerKWeight(req.FeePerKw),
+		CsvDelay:         req.CsvDelay,
+		MaxAcceptedHtlcs: req.MaxAcceptedHtlcs,
+		ChannelFlags:     req.ChannelFlags,
+	}, nil
+}
+
+// AcceptorResponse contains the response to a channel acceptor request.
+type AcceptorResponse struct {
+	// Accept indicates whether to accept the channel.
+	Accept bool
+
+	// Error is an optional error to send the initiating party to indicate
+	// why the channel was rejected. This string will be sent to the
+	// initiating peer, and is limited to 500 chars. This field cannot be
+	// set if the accept boolean is true.
+	Error string
+
+	// UpfrontShutdown is the address to use if the initiating peer supports
+	// option upfront shutdown. Note that you must check whether the peer
+	// supports this feature if setting the address.
+	UpfrontShutdown string
+
+	// CsvDelay is the delay (in blocks) that we require for the remote party.
+	CsvDelay uint32
+
+	// ReserveSat is the amount that we require the remote peer to adhere to.
+	ReserveSat uint64
+
+	// InFlightMaxMsat is the maximum amount of funds in millisatoshis that
+	// we allow the remote peer to have in outstanding htlcs.
+	InFlightMaxMsat uint64
+
+	// MaxHtlcCount is the maximum number of htlcs that the remote peer can
+	// offer us.
+	MaxHtlcCount uint32
+
+	// MinHtlcIn is the minimum value in millisatoshis for incoming htlcs
+	// on the channel.
+	MinHtlcIn uint64
+
+	// MinAcceptDepth is the number of confirmations we require before we
+	// consider the channel open.
+	MinAcceptDepth uint32
 }
 
 // QueryRoutesRequest is the request of a QueryRoutes call.
@@ -3185,6 +3311,94 @@ func (s *lightningClient) ListPermissions(
 	}
 
 	return result, nil
+}
+
+// AcceptorFunction is the signature used for functions passed to our channel
+// acceptor.
+type AcceptorFunction func(context.Context,
+	*AcceptorRequest) (*AcceptorResponse, error)
+
+// ChannelAcceptor create a channel acceptor using the accept function passed
+// in. The timeout provided will be used to timeout the passed accept closure
+// when it exceeds the amount of time we allow. Note that this amount should be
+// strictly less than lnd's chanacceptor timeout parameter.
+func (s *lightningClient) ChannelAcceptor(ctx context.Context,
+	timeout time.Duration, accept AcceptorFunction) (chan error, error) {
+
+	acceptStream, err := s.client.ChannelAcceptor(
+		s.adminMac.WithMacaroonAuth(ctx),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	errChan := make(chan error, 1)
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			select {
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+
+			default:
+			}
+
+			request, err := acceptStream.Recv()
+			if err != nil {
+				errChan <- fmt.Errorf("channel acceptor "+
+					"receive failed: %v", err)
+
+				return
+			}
+
+			accReq, err := newAcceptorRequest(request)
+			if err != nil {
+				errChan <- fmt.Errorf("invalid request sent "+
+					"from lnd: %v", err)
+
+				return
+			}
+
+			// Create a child context for our accept function which
+			// will timeout after the timeout period provided.
+			ctxt, cancel := context.WithTimeout(ctx, timeout)
+
+			resp, err := accept(ctxt, accReq)
+			cancel()
+			if err != nil {
+				errChan <- fmt.Errorf("accept function "+
+					"failed: %v", err)
+
+				return
+			}
+
+			rpcResp := &lnrpc.ChannelAcceptResponse{
+				Accept:          resp.Accept,
+				PendingChanId:   request.PendingChanId,
+				Error:           resp.Error,
+				UpfrontShutdown: resp.UpfrontShutdown,
+				CsvDelay:        resp.CsvDelay,
+				ReserveSat:      resp.ReserveSat,
+				InFlightMaxMsat: resp.InFlightMaxMsat,
+				MaxHtlcCount:    resp.MaxHtlcCount,
+				MinHtlcIn:       resp.MinHtlcIn,
+				MinAcceptDepth:  resp.MinAcceptDepth,
+			}
+
+			if err := acceptStream.Send(rpcResp); err != nil {
+				errChan <- fmt.Errorf("channel acceptor send "+
+					"failed: %v", err)
+
+				return
+			}
+		}
+	}()
+
+	return errChan, nil
 }
 
 // unmarshallHop unmarshalls a single hop.
