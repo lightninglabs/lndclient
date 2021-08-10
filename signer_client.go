@@ -114,7 +114,7 @@ type signerClient struct {
 	timeout   time.Duration
 }
 
-func newSignerClient(conn *grpc.ClientConn,
+func newSignerClient(conn grpc.ClientConnInterface,
 	signerMac serializedMacaroon, timeout time.Duration) *signerClient {
 
 	return &signerClient{

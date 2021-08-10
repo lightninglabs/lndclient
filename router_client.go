@@ -254,7 +254,7 @@ type routerClient struct {
 	timeout      time.Duration
 }
 
-func newRouterClient(conn *grpc.ClientConn,
+func newRouterClient(conn grpc.ClientConnInterface,
 	routerKitMac serializedMacaroon, timeout time.Duration) *routerClient {
 
 	return &routerClient{
