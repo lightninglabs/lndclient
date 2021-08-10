@@ -987,9 +987,6 @@ type Hop struct {
 	// ChannelID is the short channel ID of the forwarding channel.
 	ChannelID uint64
 
-	// Capacity is the channel capacity.
-	Capacity btcutil.Amount
-
 	// Expiry is the timelock value.
 	Expiry uint32
 
@@ -3414,7 +3411,6 @@ func unmarshallHop(rpcHop *lnrpc.Hop) (*Hop, error) {
 
 	return &Hop{
 		ChannelID:        rpcHop.ChanId,
-		Capacity:         btcutil.Amount(rpcHop.ChanCapacity),
 		Expiry:           rpcHop.Expiry,
 		AmtToForwardMsat: lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
 		FeeMsat:          lnwire.MilliSatoshi(rpcHop.FeeMsat),
