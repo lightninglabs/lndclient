@@ -27,13 +27,14 @@ type WalletKitClient interface {
 	ListUnspent(ctx context.Context, minConfs, maxConfs int32) (
 		[]*lnwallet.Utxo, error)
 
-	// LeaseOutput locks an output to the given ID, preventing it from being
-	// available for any future coin selection attempts. The absolute time
-	// of the lock's expiration is returned. The expiration of the lock can
-	// be extended by successive invocations of this call. Outputs can be
-	// unlocked before their expiration through `ReleaseOutput`.
+	// LeaseOutput locks an output to the given ID for the lease time
+	// provided, preventing it from being available for any future coin
+	// selection attempts. The absolute time of the lock's expiration is
+	// returned. The expiration of the lock can be extended by successive
+	// invocations of this call. Outputs can be unlocked before their
+	// expiration through `ReleaseOutput`.
 	LeaseOutput(ctx context.Context, lockID wtxmgr.LockID,
-		op wire.OutPoint) (time.Time, error)
+		op wire.OutPoint, leaseTime time.Duration) (time.Time, error)
 
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
@@ -153,7 +154,7 @@ func (m *walletKitClient) ListUnspent(ctx context.Context, minConfs,
 // successive invocations of this call. Outputs can be unlocked before their
 // expiration through `ReleaseOutput`.
 func (m *walletKitClient) LeaseOutput(ctx context.Context, lockID wtxmgr.LockID,
-	op wire.OutPoint) (time.Time, error) {
+	op wire.OutPoint, leaseTime time.Duration) (time.Time, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
@@ -165,6 +166,7 @@ func (m *walletKitClient) LeaseOutput(ctx context.Context, lockID wtxmgr.LockID,
 			TxidBytes:   op.Hash[:],
 			OutputIndex: op.Index,
 		},
+		ExpirationSeconds: uint64(leaseTime.Seconds()),
 	})
 	if err != nil {
 		return time.Time{}, err
