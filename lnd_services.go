@@ -158,7 +158,7 @@ type LndServices struct {
 	NodePubkey  route.Vertex
 	Version     *verrpc.Version
 
-	macaroons *macaroonPouch
+	macaroons macaroonPouch
 }
 
 // GrpcLndServices constitutes a set of required RPC services.
@@ -246,7 +246,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// are enabled, then not all macaroons might be there and the user would
 	// get a more cryptic error message.
 	readonlyMac, err := loadMacaroon(
-		macaroonDir, defaultReadonlyFilename, cfg.CustomMacaroonPath,
+		macaroonDir, readonlyMacFilename, cfg.CustomMacaroonPath,
 	)
 	if err != nil {
 		return nil, err
@@ -293,22 +293,28 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// With the macaroons loaded and the version checked, we can now create
 	// the real lightning client which uses the admin macaroon.
 	lightningClient := newLightningClient(
-		conn, timeout, chainParams, macaroons.adminMac,
+		conn, timeout, chainParams, macaroons[adminMacFilename],
 	)
 
 	// With the network check passed, we'll now initialize the rest of the
 	// sub-server connections, giving each of them their specific macaroon.
 	notifierClient := newChainNotifierClient(
-		conn, macaroons.chainMac, timeout,
+		conn, macaroons[chainMacFilename], timeout,
 	)
-	signerClient := newSignerClient(conn, macaroons.signerMac, timeout)
+	signerClient := newSignerClient(
+		conn, macaroons[signerMacFilename], timeout,
+	)
 	walletKitClient := newWalletKitClient(
-		conn, macaroons.walletKitMac, timeout,
+		conn, macaroons[walletKitMacFilename], timeout,
 	)
-	invoicesClient := newInvoicesClient(conn, macaroons.invoiceMac, timeout)
-	routerClient := newRouterClient(conn, macaroons.routerMac, timeout)
+	invoicesClient := newInvoicesClient(
+		conn, macaroons[invoiceMacFilename], timeout,
+	)
+	routerClient := newRouterClient(
+		conn, macaroons[routerMacFilename], timeout,
+	)
 	versionerClient := newVersionerClient(
-		conn, macaroons.readonlyMac, timeout,
+		conn, macaroons[readonlyMacFilename], timeout,
 	)
 
 	cleanup := func() {
@@ -686,13 +692,13 @@ var (
 	defaultDataDir     = "data"
 	defaultChainSubDir = "chain"
 
-	defaultAdminMacaroonFilename     = "admin.macaroon"
-	defaultInvoiceMacaroonFilename   = "invoices.macaroon"
-	defaultChainMacaroonFilename     = "chainnotifier.macaroon"
-	defaultWalletKitMacaroonFilename = "walletkit.macaroon"
-	defaultRouterMacaroonFilename    = "router.macaroon"
-	defaultSignerFilename            = "signer.macaroon"
-	defaultReadonlyFilename          = "readonly.macaroon"
+	adminMacFilename     = "admin.macaroon"
+	invoiceMacFilename   = "invoices.macaroon"
+	chainMacFilename     = "chainnotifier.macaroon"
+	walletKitMacFilename = "walletkit.macaroon"
+	routerMacFilename    = "router.macaroon"
+	signerMacFilename    = "signer.macaroon"
+	readonlyMacFilename  = "readonly.macaroon"
 
 	// maxMsgRecvSize is the largest gRPC message our client will receive.
 	// We set this to 200MiB.
