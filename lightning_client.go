@@ -738,8 +738,8 @@ type NodeUpdate struct {
 	// IdentityKey holds the node's pub key.
 	IdentityKey route.Vertex
 
-	// GlobalFeatures holds the node's advertised features.
-	GlobalFeatures lnwire.FeatureVector
+	// Features is the set of features the node supports.
+	Features []lnwire.FeatureBit
 
 	// Alias is the node's alias name.
 	Alias string
@@ -3096,21 +3096,18 @@ func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
 		result.NodeUpdates[i] = NodeUpdate{
 			Addresses:   nodeUpdate.Addresses,
 			IdentityKey: identityKey,
-			Alias:       nodeUpdate.Alias,
-			Color:       nodeUpdate.Color,
+			Features: make(
+				[]lnwire.FeatureBit, 0,
+				len(nodeUpdate.Features),
+			),
+			Alias: nodeUpdate.Alias,
+			Color: nodeUpdate.Color,
 		}
 
-		if nodeUpdate.GlobalFeatures != nil {
-			rawFeatureVector := &lnwire.RawFeatureVector{}
-			err = rawFeatureVector.Decode(
-				bytes.NewReader(nodeUpdate.GlobalFeatures),
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			result.NodeUpdates[i].GlobalFeatures = *lnwire.NewFeatureVector(
-				rawFeatureVector, lnwire.Features,
+		for featureBit := range nodeUpdate.Features {
+			result.NodeUpdates[i].Features = append(
+				result.NodeUpdates[i].Features,
+				lnwire.FeatureBit(featureBit),
 			)
 		}
 	}
@@ -3144,6 +3141,8 @@ func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
 			),
 			ChannelPoint: *channelPoint,
 			Capacity:     btcutil.Amount(channelUpdate.Capacity),
+			// Note: routing policy is always set in lnd's
+			// rpcserver.go and therefore should never be nil.
 			RoutingPolicy: *getRoutingPolicy(
 				channelUpdate.RoutingPolicy,
 			),
