@@ -39,6 +39,7 @@ var (
 	// subset of the lndclient functionality is needed, the required build
 	// tags can be adjusted accordingly. This default will be used as a fall
 	// back version if none is specified in the configuration.
+	// TODO(carla): bump to 0.12 once cut
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor:  0,
 		AppMinor:  11,
