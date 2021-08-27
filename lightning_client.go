@@ -56,7 +56,7 @@ type LightningClient interface {
 		endHeight int32) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
-	ListChannels(ctx context.Context) ([]ChannelInfo, error)
+	ListChannels(ctx context.Context, activeOnly, publicOnly bool) ([]ChannelInfo, error)
 
 	// PendingChannels returns a list of lnd's pending channels.
 	PendingChannels(ctx context.Context) (*PendingChannels, error)
@@ -1568,15 +1568,18 @@ func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
 }
 
 // ListChannels retrieves all channels of the backing lnd node.
-func (s *lightningClient) ListChannels(ctx context.Context) (
-	[]ChannelInfo, error) {
+func (s *lightningClient) ListChannels(ctx context.Context, activeOnly,
+	publicOnly bool) ([]ChannelInfo, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	response, err := s.client.ListChannels(
 		s.adminMac.WithMacaroonAuth(rpcCtx),
-		&lnrpc.ListChannelsRequest{},
+		&lnrpc.ListChannelsRequest{
+			ActiveOnly: activeOnly,
+			PublicOnly: publicOnly,
+		},
 	)
 	if err != nil {
 		return nil, err
