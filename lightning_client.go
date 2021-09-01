@@ -1413,6 +1413,9 @@ type InvoiceHtlc struct {
 	// back).
 	ResolveTime time.Time
 
+	// State is the acceptance state of the hltc.
+	State lnrpc.InvoiceHTLCState
+
 	// CustomRecords is list of the custom tlv records.
 	CustomRecords map[uint64][]byte
 }
@@ -1516,6 +1519,7 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 			ChannelID:     lnwire.NewShortChanIDFromInt(htlc.ChanId),
 			Amount:        lnwire.MilliSatoshi(htlc.AmtMsat),
 			CustomRecords: htlc.CustomRecords,
+			State:         htlc.State,
 		}
 
 		if htlc.AcceptTime != 0 {
