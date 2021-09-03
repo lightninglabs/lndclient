@@ -1258,9 +1258,9 @@ func (s *lightningClient) payInvoice(ctx context.Context, invoice string,
 					return &PaymentResult{Err: err}
 				}
 				return &PaymentResult{
-					PaidFee: btcutil.Amount(r.TotalFees),
+					PaidFee: btcutil.Amount(r.TotalFees), // nolint:staticcheck
 					PaidAmt: btcutil.Amount(
-						r.TotalAmt - r.TotalFees,
+						r.TotalAmt - r.TotalFees, // nolint:staticcheck
 					),
 					Preimage: preimage,
 				}
@@ -2017,7 +2017,7 @@ func (s *lightningClient) ForwardingHistory(ctx context.Context,
 	events := make([]ForwardingEvent, len(response.ForwardingEvents))
 	for i, event := range response.ForwardingEvents {
 		events[i] = ForwardingEvent{
-			Timestamp:     time.Unix(int64(event.Timestamp), 0),
+			Timestamp:     time.Unix(int64(event.Timestamp), 0), // nolint:staticcheck
 			ChannelIn:     event.ChanIdIn,
 			ChannelOut:    event.ChanIdOut,
 			AmountMsatIn:  lnwire.MilliSatoshi(event.AmtInMsat),
@@ -2983,8 +2983,8 @@ func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
 	}
 
 	return &ChannelBalance{
-		Balance:        btcutil.Amount(resp.Balance),
-		PendingBalance: btcutil.Amount(resp.PendingOpenBalance),
+		Balance:        btcutil.Amount(resp.Balance), // nolint:staticcheck
+		PendingBalance: btcutil.Amount(resp.PendingOpenBalance), // nolint:staticcheck
 	}, nil
 }
 
@@ -3138,7 +3138,7 @@ func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
 		}
 
 		result.NodeUpdates[i] = NodeUpdate{
-			Addresses:   nodeUpdate.Addresses,
+			Addresses:   nodeUpdate.Addresses, // nolint:staticcheck
 			IdentityKey: identityKey,
 			Features: make(
 				[]lnwire.FeatureBit, 0,
