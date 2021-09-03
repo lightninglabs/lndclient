@@ -347,11 +347,13 @@ func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 	}
 
 	chanInfo.PendingHtlcs = make([]PendingHtlc, len(channel.PendingHtlcs))
-	for i, htlc := range channel.PendingHtlcs {
-		chanInfo.PendingHtlcs[i] = PendingHtlc{
-			Incoming: htlc.Incoming,
-			Amount:   btcutil.Amount(htlc.Amount),
+	for i, rpcHtlc := range channel.PendingHtlcs {
+		htlc, err := newPendingHtlc(rpcHtlc)
+		if err != nil {
+			return nil, err
 		}
+
+		chanInfo.PendingHtlcs[i] = *htlc
 	}
 
 	if channel.CloseAddress != "" {
@@ -1411,6 +1413,9 @@ type InvoiceHtlc struct {
 	// back).
 	ResolveTime time.Time
 
+	// State is the acceptance state of the hltc.
+	State lnrpc.InvoiceHTLCState
+
 	// CustomRecords is list of the custom tlv records.
 	CustomRecords map[uint64][]byte
 }
@@ -1422,6 +1427,44 @@ type PendingHtlc struct {
 
 	// Amount is the amount in satoshis that this HTLC represents.
 	Amount btcutil.Amount
+
+	// Hash is the payment hash for the htlc. Not guaranteed to be unique.
+	Hash lntypes.Hash
+
+	// Expiry is the height that this htlc will expire.
+	Expiry uint32
+
+	// Index identifying the htlc on the channel.
+	HtlcIndex uint64
+
+	// ForwardingChannel is the channel that the htlc was forwarded from if
+	// if is an incoming hltc, or should to forwarded to if it is an
+	// outgoing htlc. This value may be zero for htlcs that we have not made
+	// forwarding decisions for yet.
+	ForwardingChannel lnwire.ShortChannelID
+
+	// ForwardingIndex identifying the htlc on the forwarding channel. This
+	// will be zero if the htlc originated at our node.
+	ForwardingIndex uint64
+}
+
+func newPendingHtlc(rpcHtlc *lnrpc.HTLC) (*PendingHtlc, error) {
+	hash, err := lntypes.MakeHash(rpcHtlc.HashLock)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PendingHtlc{
+		Incoming:  rpcHtlc.Incoming,
+		Amount:    btcutil.Amount(rpcHtlc.Amount),
+		Hash:      hash,
+		Expiry:    rpcHtlc.ExpirationHeight,
+		HtlcIndex: rpcHtlc.HtlcIndex,
+		ForwardingChannel: lnwire.NewShortChanIDFromInt(
+			rpcHtlc.ForwardingChannel,
+		),
+		ForwardingIndex: rpcHtlc.ForwardingHtlcIndex,
+	}, nil
 }
 
 // LookupInvoice looks up an invoice in lnd, it will error if the invoice is
@@ -1476,6 +1519,7 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 			ChannelID:     lnwire.NewShortChanIDFromInt(htlc.ChanId),
 			Amount:        lnwire.MilliSatoshi(htlc.AmtMsat),
 			CustomRecords: htlc.CustomRecords,
+			State:         htlc.State,
 		}
 
 		if htlc.AcceptTime != 0 {
