@@ -324,6 +324,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		log.Debugf("Wait for invoices to finish")
 		invoicesClient.WaitForFinished()
 
+		log.Debugf("Wait for router to finish")
+		routerClient.WaitForFinished()
+
 		log.Debugf("Lnd services finished")
 	}
 

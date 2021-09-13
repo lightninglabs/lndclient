@@ -37,6 +37,7 @@ var (
 		"UpdateChanPolicy":       "UpdateChannelPolicy",
 		"NetworkInfo":            "GetNetworkInfo",
 		"SubscribeGraph":         "SubscribeChannelGraph",
+		"InterceptHtlcs":         "HtlcInterceptor",
 	}
 )
 
