@@ -700,6 +700,14 @@
                 }
             ]
         },
+	"/routerrpc.Router/XImportMissionControl": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/signrpc.Signer/ComputeInputScript": {
             "permissions": [
                 {
