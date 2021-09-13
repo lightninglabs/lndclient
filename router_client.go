@@ -333,7 +333,7 @@ type routerClient struct {
 	wg           sync.WaitGroup
 }
 
-func newRouterClient(conn *grpc.ClientConn,
+func newRouterClient(conn grpc.ClientConnInterface,
 	routerKitMac serializedMacaroon, timeout time.Duration) *routerClient {
 
 	return &routerClient{
