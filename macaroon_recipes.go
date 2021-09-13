@@ -38,6 +38,7 @@ var (
 		"NetworkInfo":            "GetNetworkInfo",
 		"SubscribeGraph":         "SubscribeChannelGraph",
 		"InterceptHtlcs":         "HtlcInterceptor",
+		"ImportMissionControl":   "XImportMissionControl",
 	}
 )
 

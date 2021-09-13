@@ -56,6 +56,10 @@ type RouterClient interface {
 	// currently held will be released by lnd.
 	InterceptHtlcs(ctx context.Context,
 		handler HtlcInterceptHandler) error
+
+	// ImportMissionControl imports a set of pathfinding results to lnd.
+	ImportMissionControl(ctx context.Context,
+		entries []MissionControlEntry) error
 }
 
 // PaymentStatus describe the state of a payment.
@@ -856,4 +860,65 @@ func rpcInterceptorResponse(request InterceptedHtlc,
 	}
 
 	return rpcResp, nil
+}
+
+// MissionControlEntry contains a mission control entry for a node pair.
+type MissionControlEntry struct {
+	// NodeFrom is the node that the payment was forwarded from.
+	NodeFrom route.Vertex
+
+	// NodeTo is the node that the payment was forwarded to.
+	NodeTo route.Vertex
+
+	// FailTime is the time for our failed amount.
+	FailTime time.Time
+
+	// FailAmt is the payment amount that failed in millisatoshis.
+	FailAmt lnwire.MilliSatoshi
+
+	// SuccessTime is the time for our success amount.
+	SuccessTime time.Time
+
+	// SuccessAmt is the payment amount that succeeded in millisatoshis.
+	SuccessAmt lnwire.MilliSatoshi
+}
+
+// ImportMissionControl imports a set of pathfinding results to mission control.
+// These results are not persisted across restarts.
+func (r *routerClient) ImportMissionControl(ctx context.Context,
+	entries []MissionControlEntry) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	req := &routerrpc.XImportMissionControlRequest{
+		Pairs: make([]*routerrpc.PairHistory, len(entries)),
+	}
+
+	for i, entry := range entries {
+		entry := entry
+		rpcEntry := &routerrpc.PairHistory{
+			NodeFrom: entry.NodeFrom[:],
+			NodeTo:   entry.NodeTo[:],
+			History: &routerrpc.PairData{
+				SuccessAmtMsat: int64(entry.SuccessAmt),
+				FailAmtMsat:    int64(entry.FailAmt),
+			},
+		}
+
+		if !entry.FailTime.IsZero() {
+			rpcEntry.History.FailTime = entry.FailTime.Unix()
+		}
+
+		if !entry.SuccessTime.IsZero() {
+			rpcEntry.History.SuccessTime = entry.SuccessTime.Unix()
+		}
+
+		req.Pairs[i] = rpcEntry
+	}
+
+	_, err := r.client.XImportMissionControl(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx), req,
+	)
+	return err
 }
