@@ -40,6 +40,10 @@ const (
 	// RPC requests other than wallet unlocking operations.
 	WalletStateRPCActive WalletState = 3
 
+	// WalletStateServerActive denotes that lnd's main server is now fully
+	// ready to receive calls.
+	WalletStateServerActive WalletState = 4
+
 	// WalletStateWaitingToStart indicates that lnd is at the beginning of
 	// the startup process. In a cluster environment this may mean that
 	// we're waiting to become the leader in which case RPC calls will be
@@ -60,7 +64,10 @@ func (s WalletState) String() string {
 		return "Wallet is unlocked"
 
 	case WalletStateRPCActive:
-		return "Lnd is ready for requests"
+		return "Lnd RPC server is ready for requests"
+
+	case WalletStateServerActive:
+		return "Lnd main server is ready for requests"
 
 	case WalletStateWaitingToStart:
 		return "Lnd is waiting to start"
@@ -68,6 +75,15 @@ func (s WalletState) String() string {
 	default:
 		return fmt.Sprintf("unknown wallet state <%d>", s)
 	}
+}
+
+// ReadyForGetInfo returns true if the wallet state is ready for the GetInfo to
+// be called. This needs to also return true for the RPC active state to be
+// backward compatible with lnd 0.13.x nodes which didn't yet have the server
+// active state. But the GetInfo RPC isn't guarded by that server active flag
+// anyway, so we can call that whenever the RPC server is ready.
+func (s WalletState) ReadyForGetInfo() bool {
+	return s == WalletStateRPCActive || s == WalletStateServerActive
 }
 
 // stateClient is a client for lnd's lnrpc.State service.
@@ -131,8 +147,8 @@ func (s *stateClient) SubscribeState(ctx context.Context) (chan WalletState,
 			}
 
 			// If this is the final state, no more states will be
-			// sent to us and we can close the subscription.
-			if state == WalletStateRPCActive {
+			// sent to us, and we can close the subscription.
+			if state == WalletStateServerActive {
 				close(stateChan)
 				close(errChan)
 
@@ -173,6 +189,9 @@ func unmarshalWalletState(rpcState lnrpc.WalletState) (WalletState, error) {
 
 	case lnrpc.WalletState_RPC_ACTIVE:
 		return WalletStateRPCActive, nil
+
+	case lnrpc.WalletState_SERVER_ACTIVE:
+		return WalletStateServerActive, nil
 
 	default:
 		return 0, fmt.Errorf("unknown wallet state: %d", rpcState)
