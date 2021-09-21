@@ -42,7 +42,7 @@ var (
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor:  0,
 		AppMinor:  13,
-		AppPatch:  0,
+		AppPatch:  99,
 		BuildTags: DefaultBuildTags,
 	}
 
@@ -548,8 +548,9 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 			log.Infof("Wallet state of lnd is now: %v", state)
 
 			// Once we reach the final state we can break out of the
-			// loop.
-			if state == WalletStateRPCActive {
+			// loop. We also need to be backward compatible to nodes
+			// running 0.13.x which only had the RPC active state.
+			if state.ReadyForGetInfo() {
 				return getInfo()
 			}
 
