@@ -55,7 +55,6 @@ func (bc *basicClientOptions) applyBasicClientOptions(options ...BasicClientOpti
 // provided.
 func NewBasicClient(lndHost, tlsPath, macDir, tlsData, macData, network string,
 	insecure, systemCert bool, basicOptions ...BasicClientOption) (
-
 	lnrpc.LightningClient, error) {
 
 	conn, err := NewBasicConn(
@@ -74,9 +73,7 @@ func NewBasicClient(lndHost, tlsPath, macDir, tlsData, macData, network string,
 // aren't provided.
 func NewBasicConn(lndHost string, tlsPath, macDir, tlsData, macData,
 	network string, insecure, systemCert bool,
-	basicOptions ...BasicClientOption) (
-
-	*grpc.ClientConn, error) {
+	basicOptions ...BasicClientOption) (*grpc.ClientConn, error) {
 
 	creds, mac, err := parseTLSAndMacaroon(
 		tlsPath, macDir, tlsData, macData, network, insecure,
@@ -87,7 +84,11 @@ func NewBasicConn(lndHost string, tlsPath, macDir, tlsData, macData,
 	}
 
 	// Now we append the macaroon credentials to the dial options.
-	cred := macaroons.NewMacaroonCredential(mac)
+	cred, err := macaroons.NewMacaroonCredential(mac)
+	if err != nil {
+		return nil, fmt.Errorf("error creating macaroon credential: %v",
+			err)
+	}
 
 	// Create a dial options array.
 	opts := []grpc.DialOption{
