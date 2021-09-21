@@ -72,18 +72,27 @@ type macaroonPouch map[string]serializedMacaroon
 
 // newMacaroonPouch returns a new instance of a fully populated macaroonPouch
 // given the directory where all the macaroons are stored.
-func newMacaroonPouch(macaroonDir, customMacPath string) (macaroonPouch,
+func newMacaroonPouch(macaroonDir, customMacPath, customMacHex string) (macaroonPouch,
 	error) {
 
 	// If a custom macaroon is specified, we assume it contains all
 	// permissions needed for the different subservers to function and we
 	// use it for all of them.
+	var (
+		mac serializedMacaroon
+		err error
+	)
+
 	if customMacPath != "" {
-		mac, err := loadMacaroon("", "", customMacPath)
+		mac, err = loadMacaroon("", "", customMacPath)
 		if err != nil {
 			return nil, err
 		}
+	} else if customMacHex != "" {
+		mac = serializedMacaroon(customMacHex)
+	}
 
+	if mac != "" {
 		return macaroonPouch{
 			invoiceMacFilename:   mac,
 			chainMacFilename:     mac,
@@ -96,8 +105,7 @@ func newMacaroonPouch(macaroonDir, customMacPath string) (macaroonPouch,
 	}
 
 	var (
-		m   = make(macaroonPouch)
-		err error
+		m = make(macaroonPouch)
 	)
 
 	for _, macFileName := range defaultMacaroonFileNames {

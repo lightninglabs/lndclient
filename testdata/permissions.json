@@ -140,6 +140,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/CheckMacaroonPermissions": {
+            "permissions": [
+                {
+                    "entity": "macaroon",
+                    "action": "read"
+                }
+            ]
+        },
         "/lnrpc.Lightning/CloseChannel": {
             "permissions": [
                 {

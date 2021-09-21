@@ -181,6 +181,12 @@ type LightningClient interface {
 	// vertices.
 	QueryRoutes(ctx context.Context, req QueryRoutesRequest) (
 		*QueryRoutesResponse, error)
+
+	// CheckMacaroonPermissions allows a client to check the validity of a
+	// macaroon.
+	CheckMacaroonPermissions(ctx context.Context, macaroon []byte,
+		permissions []MacaroonPermission, fullMethod string) (bool,
+		error)
 }
 
 // Info contains info about the connected lnd node.
@@ -3526,4 +3532,35 @@ func (s *lightningClient) QueryRoutes(ctx context.Context,
 		TotalFeesMsat: lnwire.MilliSatoshi(route.TotalFeesMsat),
 		TotalAmtMsat:  lnwire.MilliSatoshi(route.TotalAmtMsat),
 	}, nil
+}
+
+// CheckMacaroonPermissions allows a client to check the validity of a macaroon.
+func (s *lightningClient) CheckMacaroonPermissions(ctx context.Context,
+	macaroon []byte, permissions []MacaroonPermission, fullMethod string) (bool,
+	error) {
+
+	rpcPermissions := make([]*lnrpc.MacaroonPermission, len(permissions))
+	for idx, perm := range permissions {
+		rpcPermissions[idx] = &lnrpc.MacaroonPermission{
+			Entity: perm.Entity,
+			Action: perm.Action,
+		}
+	}
+
+	ctx = s.adminMac.WithMacaroonAuth(ctx)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	res, err := s.client.CheckMacaroonPermissions(
+		rpcCtx, &lnrpc.CheckMacPermRequest{
+			Macaroon:    macaroon,
+			Permissions: rpcPermissions,
+			FullMethod:  fullMethod,
+		},
+	)
+	if err != nil {
+		return false, err
+	}
+
+	return res.Valid, nil
 }

@@ -1,6 +1,7 @@
 package lndclient
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
@@ -52,13 +53,14 @@ func (bc *basicClientOptions) applyBasicClientOptions(options ...BasicClientOpti
 // NewBasicClient creates a new basic gRPC client to lnd. We call this client
 // "basic" as it falls back to expected defaults if the arguments aren't
 // provided.
-func NewBasicClient(lndHost, tlsPath, macDir, network string,
-	basicOptions ...BasicClientOption) (
+func NewBasicClient(lndHost, tlsPath, macDir, tlsData, macData, network string,
+	insecure, systemCert bool, basicOptions ...BasicClientOption) (
 
 	lnrpc.LightningClient, error) {
 
 	conn, err := NewBasicConn(
-		lndHost, tlsPath, macDir, network, basicOptions...,
+		lndHost, tlsPath, macDir, tlsData, macData, network, insecure,
+		systemCert, basicOptions...,
 	)
 	if err != nil {
 		return nil, err
@@ -70,54 +72,28 @@ func NewBasicClient(lndHost, tlsPath, macDir, network string,
 // NewBasicConn creates a new basic gRPC connection to lnd. We call this
 // connection "basic" as it falls back to expected defaults if the arguments
 // aren't provided.
-func NewBasicConn(lndHost, tlsPath, macDir, network string,
+func NewBasicConn(lndHost string, tlsPath, macDir, tlsData, macData,
+	network string, insecure, systemCert bool,
 	basicOptions ...BasicClientOption) (
 
 	*grpc.ClientConn, error) {
 
-	if tlsPath == "" {
-		tlsPath = defaultTLSCertPath
-	}
-
-	// Load the specified TLS certificate and build transport credentials
-	creds, err := credentials.NewClientTLSFromFile(tlsPath, "")
+	creds, mac, err := parseTLSAndMacaroon(
+		tlsPath, macDir, tlsData, macData, network, insecure,
+		systemCert, basicOptions...,
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	// Now we append the macaroon credentials to the dial options.
+	cred := macaroons.NewMacaroonCredential(mac)
+
 	// Create a dial options array.
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
-	}
-
-	if macDir == "" {
-		macDir = filepath.Join(
-			defaultLndDir, defaultDataDir, defaultChainSubDir,
-			"bitcoin", network,
-		)
-	}
-
-	// Starting with the set of default options, we'll apply any specified
-	// functional options to the basic client.
-	bco := defaultBasicClientOptions()
-	bco.applyBasicClientOptions(basicOptions...)
-
-	macPath := filepath.Join(macDir, bco.macFilename)
-
-	// Load the specified macaroon file.
-	macBytes, err := ioutil.ReadFile(macPath)
-	if err == nil {
-		// Only if file is found
-		mac := &macaroon.Macaroon{}
-		if err = mac.UnmarshalBinary(macBytes); err != nil {
-			return nil, fmt.Errorf("unable to decode macaroon: %v",
-				err)
-		}
-
-		// Now we append the macaroon credentials to the dial options.
-		cred := macaroons.NewMacaroonCredential(mac)
-		opts = append(opts, grpc.WithPerRPCCredentials(cred))
-		opts = append(opts, grpc.WithDefaultCallOptions(maxMsgRecvSize))
+		grpc.WithPerRPCCredentials(cred),
+		grpc.WithDefaultCallOptions(maxMsgRecvSize),
 	}
 
 	// We need to use a custom dialer so we can also connect to unix sockets
@@ -133,4 +109,53 @@ func NewBasicConn(lndHost, tlsPath, macDir, network string,
 	}
 
 	return conn, nil
+}
+
+// parseTLSAndMacaroon looks to see if the TLS certificate and macaroon were
+// passed in as a path or as straight-up data, and processes it accordingly so
+// it can be passed into grpc to establish a connection with LND.
+func parseTLSAndMacaroon(tlsPath, macDir, tlsData, macData, network string,
+	insecure, systemCert bool, basicOptions ...BasicClientOption) (
+	credentials.TransportCredentials, *macaroon.Macaroon, error) {
+
+	creds, err := GetTLSCredentials(tlsData, tlsPath, insecure, systemCert)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Starting with the set of default options, we'll apply any specified
+	// functional options to the basic client.
+	bco := defaultBasicClientOptions()
+	bco.applyBasicClientOptions(basicOptions...)
+
+	var macBytes []byte
+	mac := &macaroon.Macaroon{}
+	if macData != "" {
+		macBytes, err = hex.DecodeString(macData)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if macDir == "" {
+			macDir = filepath.Join(
+				defaultLndDir, defaultDataDir, defaultChainSubDir,
+				"bitcoin", network,
+			)
+		}
+
+		macPath := filepath.Join(macDir, bco.macFilename)
+
+		// Load the specified macaroon file.
+		macBytes, err = ioutil.ReadFile(macPath)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if err = mac.UnmarshalBinary(macBytes); err != nil {
+		return nil, nil, fmt.Errorf("unable to decode macaroon: %v",
+			err)
+	}
+
+	return creds, mac, nil
 }
