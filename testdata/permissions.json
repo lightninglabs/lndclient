@@ -868,6 +868,14 @@
                 }
             ]
         },
+		"/walletrpc.WalletKit/ListAccounts": {
+			"permissions":[
+				{
+					"entity": "onchain",
+					"action": "read"
+				}
+			]
+		},
         "/watchtowerrpc.Watchtower/GetInfo": {
             "permissions": [
                 {
