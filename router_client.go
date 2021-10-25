@@ -329,6 +329,7 @@ type routerClient struct {
 	client       routerrpc.RouterClient
 	routerKitMac serializedMacaroon
 	timeout      time.Duration
+	quitOnce     sync.Once
 	quit         chan struct{}
 	wg           sync.WaitGroup
 }
@@ -347,7 +348,10 @@ func newRouterClient(conn grpc.ClientConnInterface,
 // WaitForFinished sends the signal for the router client to shut down and waits
 // for all goroutines to exit.
 func (r *routerClient) WaitForFinished() {
-	close(r.quit)
+	r.quitOnce.Do(func() {
+		close(r.quit)
+	})
+
 	r.wg.Wait()
 }
 
