@@ -40,8 +40,8 @@ XhkpT5dliEGFLNe6OOgeWTU1JpEXfCud/GImtNMHQi4EDWQfvWuCNGhOoQ==
 
 	// Make sure it works when data is passed in.
 	_, _, err := parseTLSAndMacaroon(
-		"", "", tlsData, macData, "mainnet", false, false,
-		MacFilename(""),
+		"", "", "mainnet", MacFilename(""), TLSData(tlsData),
+		MacaroonData(macData),
 	)
 	require.NoError(t, err)
 
@@ -65,8 +65,7 @@ XhkpT5dliEGFLNe6OOgeWTU1JpEXfCud/GImtNMHQi4EDWQfvWuCNGhOoQ==
 	require.NoError(t, err)
 
 	_, _, err = parseTLSAndMacaroon(
-		certPath, macPath, "", "", "mainnet", false, false,
-		MacFilename(""),
+		certPath, macPath, "mainnet", MacFilename(""),
 	)
 	require.NoError(t, err)
 }
