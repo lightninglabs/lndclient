@@ -544,7 +544,14 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 	log.Info("Waiting for lnd to unlock")
 	for {
 		select {
-		case state := <-stateChan:
+		case state, ok := <-stateChan:
+			// The update channel was closed, which signifies that the
+			// wallet/daemon is now fully ready, so we can just return
+			// the GetInfo response.
+			if !ok {
+				return getInfo()
+			}
+
 			log.Infof("Wallet state of lnd is now: %v", state)
 
 			// Once we reach the final state we can break out of the
@@ -554,7 +561,17 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 				return getInfo()
 			}
 
-		case err := <-errChan:
+		case err, ok := <-errChan:
+			// The channel was closed by the main state client. In
+			// this case the system is fully ready, so we'll ignore
+			// this as it isn't actually an error.
+			if !ok {
+				// We can just return get info as is, since we
+				// know the daemon is fully ready at this
+				// point.
+				return getInfo()
+			}
+
 			log.Errorf("Error while waiting for lnd to be "+
 				"unlocked: %v", err)
 			return nil, err
