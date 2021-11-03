@@ -6,7 +6,7 @@ require (
 	github.com/btcsuite/btcutil v1.0.3-0.20210527170813-e2ba6805a890
 	github.com/btcsuite/btcwallet/wtxmgr v1.3.1-0.20210822222949-9b5a201c344c
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
-	github.com/lightningnetwork/lnd v0.13.0-beta.rc5.0.20211021015325-cac8da819ff9
+	github.com/lightningnetwork/lnd v0.14.0-beta.rc1
 	github.com/stretchr/testify v1.7.0
 	google.golang.org/grpc v1.38.0
 	gopkg.in/macaroon.v2 v2.1.0
