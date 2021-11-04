@@ -57,6 +57,9 @@ type RouterClient interface {
 	InterceptHtlcs(ctx context.Context,
 		handler HtlcInterceptHandler) error
 
+	// QueryMissionControl will query Mission Control state from lnd.
+	QueryMissionControl(ctx context.Context) ([]MissionControlEntry, error)
+
 	// ImportMissionControl imports a set of pathfinding results to lnd.
 	ImportMissionControl(ctx context.Context,
 		entries []MissionControlEntry) error
@@ -877,6 +880,54 @@ type MissionControlEntry struct {
 
 	// SuccessAmt is the payment amount that succeeded in millisatoshis.
 	SuccessAmt lnwire.MilliSatoshi
+}
+
+// QueryMissionControl will query Mission Control state from lnd.
+func (r *routerClient) QueryMissionControl(ctx context.Context) (
+	[]MissionControlEntry, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	req := &routerrpc.QueryMissionControlRequest{}
+	res, err := r.client.QueryMissionControl(rpcCtx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]MissionControlEntry, 0, len(res.Pairs))
+	for _, pair := range res.Pairs {
+		if pair.History == nil {
+			continue
+		}
+
+		nodeFrom, err := route.NewVertexFromBytes(pair.NodeFrom)
+		if err != nil {
+			return nil, err
+		}
+
+		nodeTo, err := route.NewVertexFromBytes(pair.NodeTo)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, MissionControlEntry{
+			NodeFrom: nodeFrom,
+			NodeTo:   nodeTo,
+			FailTime: time.Unix(pair.History.FailTime, 0),
+			FailAmt: lnwire.MilliSatoshi(
+				pair.History.FailAmtMsat,
+			),
+			SuccessTime: time.Unix(
+				pair.History.SuccessTime, 0,
+			),
+			SuccessAmt: lnwire.MilliSatoshi(
+				pair.History.SuccessAmtMsat,
+			),
+		})
+	}
+
+	return result, nil
 }
 
 // ImportMissionControl imports a set of pathfinding results to mission control.
