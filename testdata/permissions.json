@@ -708,6 +708,14 @@
                 }
             ]
         },
+	"/routerrpc.Router/QueryMissionControl": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "read"
+                }
+            ]
+        },
 	"/routerrpc.Router/XImportMissionControl": {
             "permissions": [
                 {
