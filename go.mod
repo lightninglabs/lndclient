@@ -12,8 +12,8 @@ require (
 	gopkg.in/macaroon.v2 v2.1.0
 )
 
-// A PR was merged without bumping the kvdb module version. This is the same
-// commit as lnd v0.14.0-beta.
-replace github.com/lightningnetwork/lnd/kvdb => github.com/lightningnetwork/lnd/kvdb v1.2.1-0.20211117200249-df0b82f0165f
+// A PR was merged without bumping the kvdb module version. We'll be able to
+// remove this once 0.14.1-beta is out.
+replace github.com/lightningnetwork/lnd/kvdb => github.com/lightningnetwork/lnd/kvdb v1.2.1
 
 go 1.15
