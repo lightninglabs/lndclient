@@ -63,6 +63,9 @@ type RouterClient interface {
 	// ImportMissionControl imports a set of pathfinding results to lnd.
 	ImportMissionControl(ctx context.Context,
 		entries []MissionControlEntry) error
+
+	// ResetMissionControl resets the Mission Control state of lnd.
+	ResetMissionControl(ctx context.Context) error
 }
 
 // PaymentStatus describe the state of a payment.
@@ -980,6 +983,18 @@ func (r *routerClient) ImportMissionControl(ctx context.Context,
 
 	_, err := r.client.XImportMissionControl(
 		r.routerKitMac.WithMacaroonAuth(rpcCtx), req,
+	)
+	return err
+}
+
+// ResetMissionControl resets the Mission Control state of lnd.
+func (r *routerClient) ResetMissionControl(ctx context.Context) error {
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.ResetMissionControl(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.ResetMissionControlRequest{},
 	)
 	return err
 }
