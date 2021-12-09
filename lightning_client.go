@@ -1768,6 +1768,12 @@ type WaitingCloseChannel struct {
 
 	// RemotePending is the txid of the remote party's pending commit.
 	RemotePending chainhash.Hash
+
+	// ChanStatusFlags specifies the current channel state, examples:
+	//   - ChanStatusBorked|ChanStatusCommitBroadcasted|ChanStatusLocalCloseInitiator
+	//   - ChanStatusCoopBroadcasted|ChanStatusLocalCloseInitiator
+	//   - ChanStatusCoopBroadcasted|ChanStatusRemoteCloseInitiator
+	ChanStatusFlags string
 }
 
 // PendingChannels returns a list of lnd's pending channels.
@@ -1836,10 +1842,11 @@ func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels
 		}
 
 		closing := WaitingCloseChannel{
-			PendingChannel: *channel,
-			LocalTxid:      *local,
-			RemoteTxid:     *remote,
-			RemotePending:  *remotePending,
+			PendingChannel:  *channel,
+			LocalTxid:       *local,
+			RemoteTxid:      *remote,
+			RemotePending:   *remotePending,
+			ChanStatusFlags: waiting.Channel.ChanStatusFlags,
 		}
 		pending.WaitingClose[i] = closing
 	}
