@@ -687,7 +687,7 @@ func checkVersionCompatibility(client VersionerClient,
 	log.Infof("lnd version: %v", VersionString(version))
 
 	// Now check the version and make sure all required build tags are set.
-	err = assertVersionCompatible(version, expected)
+	err = AssertVersionCompatible(version, expected)
 	if err != nil {
 		return nil, err
 	}
@@ -700,9 +700,9 @@ func checkVersionCompatibility(client VersionerClient,
 	return version, nil
 }
 
-// assertVersionCompatible makes sure the detected lnd version is compatible
+// AssertVersionCompatible makes sure the detected lnd version is compatible
 // with our current version requirements.
-func assertVersionCompatible(actual *verrpc.Version,
+func AssertVersionCompatible(actual *verrpc.Version,
 	expected *verrpc.Version) error {
 
 	// We need to check the versions parts sequentially as they are
