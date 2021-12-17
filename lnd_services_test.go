@@ -148,7 +148,7 @@ func TestLndVersionCheckComparison(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			err := assertVersionCompatible(
+			err := AssertVersionCompatible(
 				tc.actual, &verrpc.Version{
 					AppMajor: tc.expectMajor,
 					AppMinor: tc.expectMinor,
