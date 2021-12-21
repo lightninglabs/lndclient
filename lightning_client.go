@@ -450,6 +450,10 @@ const (
 	// InactiveChannelUpdate indicates that the channel event holds
 	// information about a channel that became inactive.
 	InactiveChannelUpdate
+
+	// FullyResolvedChannelUpdate indicates that the channel event holds
+	// information about a channel has been fully closed.
+	FullyResolvedChannelUpdate
 )
 
 // ChannelEventUpdate holds the data fields and type for a particular channel
@@ -2383,6 +2387,19 @@ func (s *lightningClient) getChannelEventUpdate(
 	case lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL:
 		result.UpdateType = InactiveChannelUpdate
 		channelPoint := rpcChannelEventUpdate.GetInactiveChannel()
+		fundingTxID := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
+
+		result.ChannelPoint, err = getOutPoint(
+			fundingTxID.FundingTxidBytes,
+			channelPoint.OutputIndex,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL:
+		result.UpdateType = FullyResolvedChannelUpdate
+		channelPoint := rpcChannelEventUpdate.GetFullyResolvedChannel()
 		fundingTxID := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
 
 		result.ChannelPoint, err = getOutPoint(
