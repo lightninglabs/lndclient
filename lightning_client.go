@@ -1778,6 +1778,9 @@ type WaitingCloseChannel struct {
 	//   - ChanStatusCoopBroadcasted|ChanStatusLocalCloseInitiator
 	//   - ChanStatusCoopBroadcasted|ChanStatusRemoteCloseInitiator
 	ChanStatusFlags string
+
+	// CloseTxid is the close transaction that's broadcast.
+	CloseTxid chainhash.Hash
 }
 
 // PendingChannels returns a list of lnd's pending channels.
@@ -1845,12 +1848,18 @@ func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels
 			return nil, err
 		}
 
+		hash, err := chainhash.NewHashFromStr(waiting.ClosingTxid)
+		if err != nil {
+			return nil, err
+		}
+
 		closing := WaitingCloseChannel{
 			PendingChannel:  *channel,
 			LocalTxid:       *local,
 			RemoteTxid:      *remote,
 			RemotePending:   *remotePending,
 			ChanStatusFlags: waiting.Channel.ChanStatusFlags,
+			CloseTxid:       *hash,
 		}
 		pending.WaitingClose[i] = closing
 	}
