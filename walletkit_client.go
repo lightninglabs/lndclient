@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -215,7 +215,7 @@ func (m *walletKitClient) DeriveNextKey(ctx context.Context, family int32) (
 		return nil, err
 	}
 
-	key, err := btcec.ParsePubKey(resp.RawKeyBytes, btcec.S256())
+	key, err := btcec.ParsePubKey(resp.RawKeyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +244,7 @@ func (m *walletKitClient) DeriveKey(ctx context.Context, in *keychain.KeyLocator
 		return nil, err
 	}
 
-	key, err := btcec.ParsePubKey(resp.RawKeyBytes, btcec.S256())
+	key, err := btcec.ParsePubKey(resp.RawKeyBytes)
 	if err != nil {
 		return nil, err
 	}
