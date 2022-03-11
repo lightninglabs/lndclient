@@ -62,7 +62,7 @@ type RouterClient interface {
 
 	// ImportMissionControl imports a set of pathfinding results to lnd.
 	ImportMissionControl(ctx context.Context,
-		entries []MissionControlEntry) error
+		entries []MissionControlEntry, force bool) error
 
 	// ResetMissionControl resets the Mission Control state of lnd.
 	ResetMissionControl(ctx context.Context) error
@@ -950,13 +950,14 @@ func (r *routerClient) QueryMissionControl(ctx context.Context) (
 // ImportMissionControl imports a set of pathfinding results to mission control.
 // These results are not persisted across restarts.
 func (r *routerClient) ImportMissionControl(ctx context.Context,
-	entries []MissionControlEntry) error {
+	entries []MissionControlEntry, force bool) error {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	req := &routerrpc.XImportMissionControlRequest{
 		Pairs: make([]*routerrpc.PairHistory, len(entries)),
+		Force: force,
 	}
 
 	for i, entry := range entries {
