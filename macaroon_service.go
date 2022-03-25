@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -42,7 +42,7 @@ var (
 
 	// SharedKeyNUMS is the public key point that can be use for when we
 	// are deriving a shared secret key with LND.
-	SharedKeyNUMS, _ = btcec.ParsePubKey(sharedKeyNUMSBytes, btcec.S256())
+	SharedKeyNUMS, _ = btcec.ParsePubKey(sharedKeyNUMSBytes)
 
 	// SharedKeyLocator is a key locator that can be used for deriving a
 	// shared secret key with LND.
