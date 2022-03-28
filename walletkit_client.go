@@ -299,20 +299,12 @@ func (m *walletKitClient) SendOutputs(ctx context.Context,
 	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
 	label string) (*wire.MsgTx, error) {
 
-	rpcOutputs := make([]*signrpc.TxOut, len(outputs))
-	for i, output := range outputs {
-		rpcOutputs[i] = &signrpc.TxOut{
-			PkScript: output.PkScript,
-			Value:    output.Value,
-		}
-	}
-
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
 	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
 	resp, err := m.client.SendOutputs(rpcCtx, &walletrpc.SendOutputsRequest{
-		Outputs:  rpcOutputs,
+		Outputs:  marshallTxOut(outputs),
 		SatPerKw: int64(feeRate),
 		Label:    label,
 	})
