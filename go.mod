@@ -1,12 +1,13 @@
 module github.com/lightninglabs/lndclient
 
 require (
-	github.com/btcsuite/btcd v0.22.0-beta.0.20220207191057-4dc4ff7963b4
-	github.com/btcsuite/btcd/btcec/v2 v2.1.0
-	github.com/btcsuite/btcd/btcutil v1.1.0
+	github.com/btcsuite/btcd v0.22.0-beta.0.20220316175102-8d5c75c28923
+	github.com/btcsuite/btcd/btcec/v2 v2.1.3
+	github.com/btcsuite/btcd/btcutil v1.1.1
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.0
-	github.com/lightningnetwork/lnd v0.14.1-beta.0.20220324135938-0dcaa511a249
+	github.com/lightningnetwork/lnd v0.14.1-beta.0.20220325230756-dceb10144f71
 	github.com/lightningnetwork/lnd/kvdb v1.3.1
 	github.com/stretchr/testify v1.7.0
 	go.etcd.io/bbolt v1.3.6
@@ -20,21 +21,20 @@ require (
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/andybalholm/brotli v1.0.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/btcsuite/btcd/btcutil/psbt v1.1.0 // indirect
-	github.com/btcsuite/btcwallet v0.14.0 // indirect
-	github.com/btcsuite/btcwallet/wallet/txauthor v1.2.1 // indirect
+	github.com/btcsuite/btcd/btcutil/psbt v1.1.1 // indirect
+	github.com/btcsuite/btcwallet v0.14.1-0.20220322182735-b0001c262734 // indirect
+	github.com/btcsuite/btcwallet/wallet/txauthor v1.2.3 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.0 // indirect
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.1.0 // indirect
-	github.com/btcsuite/btcwallet/walletdb v1.3.6-0.20210803004036-eebed51155ec // indirect
+	github.com/btcsuite/btcwallet/walletdb v1.4.0 // indirect
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
-	github.com/btcsuite/goleveldb v1.0.0 // indirect
-	github.com/btcsuite/snappy-go v1.0.0 // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
 	github.com/btcsuite/winsvc v1.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/decred/dcrd/lru v1.0.0 // indirect
 	github.com/dsnet/compress v0.0.1 // indirect
@@ -95,6 +95,7 @@ require (
 	github.com/sirupsen/logrus v1.7.0 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/ulikunitz/xz v0.5.10 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
