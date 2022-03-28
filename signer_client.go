@@ -15,8 +15,13 @@ import (
 
 // SignerClient exposes sign functionality.
 type SignerClient interface {
+	// SignOutputRaw is a method that can be used to generate a signature
+	// for a set of inputs/outputs to a transaction. Each request specifies
+	// details concerning how the outputs should be signed, which keys they
+	// should be signed with, and also any optional tweaks.
 	SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
-		signDescriptors []*SignDescriptor) ([][]byte, error)
+		signDescriptors []*SignDescriptor,
+		prevOutputs []*wire.TxOut) ([][]byte, error)
 
 	// ComputeInputScript generates the proper input script for P2WPKH
 	// output and NP2WPKH outputs. This method only requires that the
@@ -175,14 +180,33 @@ func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 	return rpcSignDescs
 }
 
+// marshallTxOut marshals the transaction outputs as their RPC counterparts.
+func marshallTxOut(outputs []*wire.TxOut) []*signrpc.TxOut {
+	rpcOutputs := make([]*signrpc.TxOut, len(outputs))
+	for i, output := range outputs {
+		rpcOutputs[i] = &signrpc.TxOut{
+			PkScript: output.PkScript,
+			Value:    output.Value,
+		}
+	}
+
+	return rpcOutputs
+}
+
+// SignOutputRaw is a method that can be used to generate a signature for a set
+// of inputs/outputs to a transaction. Each request specifies details concerning
+// how the outputs should be signed, which keys they should be signed with, and
+// also any optional tweaks.
 func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
-	signDescriptors []*SignDescriptor) ([][]byte, error) {
+	signDescriptors []*SignDescriptor, prevOutputs []*wire.TxOut) ([][]byte,
+	error) {
 
 	txRaw, err := encodeTx(tx)
 	if err != nil {
 		return nil, err
 	}
 	rpcSignDescs := marshallSignDescriptors(signDescriptors)
+	rpcPervOutputs := marshallTxOut(prevOutputs)
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -190,8 +214,9 @@ func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
 	resp, err := s.client.SignOutputRaw(rpcCtx,
 		&signrpc.SignReq{
-			RawTxBytes: txRaw,
-			SignDescs:  rpcSignDescs,
+			RawTxBytes:  txRaw,
+			SignDescs:   rpcSignDescs,
+			PrevOutputs: rpcPervOutputs,
 		},
 	)
 	if err != nil {
