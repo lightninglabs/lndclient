@@ -2,9 +2,12 @@ package lndclient
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
@@ -53,6 +56,12 @@ type SignerClient interface {
 	// bits.
 	DeriveSharedKey(ctx context.Context, ephemeralPubKey *btcec.PublicKey,
 		keyLocator *keychain.KeyLocator) ([32]byte, error)
+
+	// NewMuSig2Session creates a new musig session with the key and
+	// signers provided.
+	NewMuSig2Session(ctx context.Context,
+		signerLoc *keychain.KeyLocator, signers [][32]byte,
+		opts ...MuSigSessionOpts) (*MuSig2Session, error)
 }
 
 // SignDescriptor houses the necessary information required to successfully
@@ -343,4 +352,102 @@ func (s *signerClient) DeriveSharedKey(ctx context.Context,
 	var sharedKey [32]byte
 	copy(sharedKey[:], resp.SharedKey)
 	return sharedKey, nil
+}
+
+// MuSigSessionOpts is the signature used to apply functional options to
+// musig session requests.
+type MuSigSessionOpts func(*signrpc.MuSig2SessionRequest)
+
+// noncesToBytes converts a set of public nonces to a [][]byte.
+func noncesToBytes(nonces [][musig2.PubNonceSize]byte) [][]byte {
+	nonceBytes := make([][]byte, len(nonces))
+
+	for i, nonce := range nonces {
+		nonceBytes[i] = nonce[:]
+	}
+
+	return nonceBytes
+}
+
+// MusigNonceOpt adds an optional set of nonces to a musig session request.
+func MusigNonceOpt(nonces [][musig2.PubNonceSize]byte) MuSigSessionOpts {
+	return func(s *signrpc.MuSig2SessionRequest) {
+		s.OtherSignerPublicNonces = noncesToBytes(nonces)
+	}
+}
+
+// MuSig2Session contains session information.
+type MuSig2Session struct {
+	// SessionID identifies the session.
+	SessionID [99]byte
+
+	// CombinedKey is the combined public key of all signers.
+	CombinedKey *btcec.PublicKey
+
+	// LocalPublicNonces are our two public nonces.
+	LocalPublicNonces [musig2.PubNonceSize]byte
+
+	// HaveAllNonces indicates whether all nonces required to start the
+	// signing process are known now.
+	HaveAllNonces bool
+}
+
+// NewMuSig2Session creates a new musig session with the key and signers
+// provided.
+func (s *signerClient) NewMuSig2Session(ctx context.Context,
+	signerLoc *keychain.KeyLocator, signers [][32]byte,
+	opts ...MuSigSessionOpts) (*MuSig2Session, error) {
+
+	signerBytes := make([][]byte, len(signers))
+	for i, signer := range signers {
+		signerBytes[i] = make([]byte, 32)
+		copy(signerBytes[i], signer[:])
+	}
+
+	req := &signrpc.MuSig2SessionRequest{
+		KeyLoc: &signrpc.KeyLocator{
+			KeyFamily: int32(signerLoc.Family),
+			KeyIndex:  int32(signerLoc.Index),
+		},
+		AllSignerPubkeys: signerBytes,
+	}
+
+	for _, opt := range opts {
+		opt(req)
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
+	resp, err := s.client.MuSig2CreateSession(rpcCtx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	combinedKey, err := schnorr.ParsePubKey(resp.CombinedKey)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse combined key: %v", err)
+	}
+
+	session := &MuSig2Session{
+		CombinedKey:   combinedKey,
+		HaveAllNonces: resp.HaveAllNonces,
+	}
+
+	if len(resp.LocalPublicNonces) != musig2.PubNonceSize {
+		return nil, fmt.Errorf("unexpected local nonce size: %v",
+			len(resp.LocalPublicNonces))
+	}
+	copy(session.LocalPublicNonces[:], resp.LocalPublicNonces)
+
+	// TODO: repalce with signrpc.MuSig2SessionIDSize
+	if len(resp.SessionId) != 99 {
+		return nil, fmt.Errorf("unexpected session ID length: %v",
+			len(resp.SessionId))
+	}
+
+	copy(session.SessionID[:], resp.SessionId)
+
+	return session, nil
 }
