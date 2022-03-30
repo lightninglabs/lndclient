@@ -17,3 +17,13 @@ require (
 )
 
 go 1.16
+
+// TODO - replace after merge of guggero/lnd/musig2
+// This replace points us to a version of lnd with musig apis.
+// We need this to be able to use musig apis.
+replace github.com/lightningnetwork/lnd => github.com/guggero/lnd v0.11.0-beta.rc4.0.20220330122225-8e3b1fc06e80
+
+// TODO - replace after merge of roasbeef/btcd/musig2
+// This replace points to the version of btcd with musig logic in it.
+// We need this because the above LND dependency has the same replace.
+replace github.com/btcsuite/btcd/btcec/v2 => github.com/roasbeef/btcd/btcec/v2 v2.0.0-20220331035954-96892acd3872
