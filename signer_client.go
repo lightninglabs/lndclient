@@ -15,8 +15,13 @@ import (
 
 // SignerClient exposes sign functionality.
 type SignerClient interface {
+	// SignOutputRaw is a method that can be used to generate a signature
+	// for a set of inputs/outputs to a transaction. Each request specifies
+	// details concerning how the outputs should be signed, which keys they
+	// should be signed with, and also any optional tweaks.
 	SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
-		signDescriptors []*SignDescriptor) ([][]byte, error)
+		signDescriptors []*SignDescriptor,
+		prevOutputs []*wire.TxOut) ([][]byte, error)
 
 	// ComputeInputScript generates the proper input script for P2WPKH
 	// output and NP2WPKH outputs. This method only requires that the
@@ -94,6 +99,11 @@ type SignDescriptor struct {
 	// script (PkScript).
 	WitnessScript []byte
 
+	// TaprootKeySpend indicates that instead of a witness script being
+	// spent by the signature that results from this signing request, a
+	// taproot key spend is performed instead.
+	TaprootKeySpend bool
+
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,
 	// otherwise an invalid signature may be generated.
@@ -150,7 +160,8 @@ func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 		}
 
 		rpcSignDescs[i] = &signrpc.SignDescriptor{
-			WitnessScript: signDesc.WitnessScript,
+			WitnessScript:   signDesc.WitnessScript,
+			TaprootKeySpend: signDesc.TaprootKeySpend,
 			Output: &signrpc.TxOut{
 				PkScript: signDesc.Output.PkScript,
 				Value:    signDesc.Output.Value,
@@ -169,14 +180,33 @@ func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 	return rpcSignDescs
 }
 
+// marshallTxOut marshals the transaction outputs as their RPC counterparts.
+func marshallTxOut(outputs []*wire.TxOut) []*signrpc.TxOut {
+	rpcOutputs := make([]*signrpc.TxOut, len(outputs))
+	for i, output := range outputs {
+		rpcOutputs[i] = &signrpc.TxOut{
+			PkScript: output.PkScript,
+			Value:    output.Value,
+		}
+	}
+
+	return rpcOutputs
+}
+
+// SignOutputRaw is a method that can be used to generate a signature for a set
+// of inputs/outputs to a transaction. Each request specifies details concerning
+// how the outputs should be signed, which keys they should be signed with, and
+// also any optional tweaks.
 func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
-	signDescriptors []*SignDescriptor) ([][]byte, error) {
+	signDescriptors []*SignDescriptor, prevOutputs []*wire.TxOut) ([][]byte,
+	error) {
 
 	txRaw, err := encodeTx(tx)
 	if err != nil {
 		return nil, err
 	}
 	rpcSignDescs := marshallSignDescriptors(signDescriptors)
+	rpcPervOutputs := marshallTxOut(prevOutputs)
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -184,8 +214,9 @@ func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
 	resp, err := s.client.SignOutputRaw(rpcCtx,
 		&signrpc.SignReq{
-			RawTxBytes: txRaw,
-			SignDescs:  rpcSignDescs,
+			RawTxBytes:  txRaw,
+			SignDescs:   rpcSignDescs,
+			PrevOutputs: rpcPervOutputs,
 		},
 	)
 	if err != nil {
