@@ -75,6 +75,13 @@ type SignerClient interface {
 	// the signatures, the cleanup bool should be set.
 	MuSig2Sign(ctx context.Context, sessionID [32]byte,
 		message [32]byte, cleanup bool) ([]byte, error)
+
+	// MuSig2CombineSig combines the given partial signature(s) with the
+	// local one, if it already exists. Once a partial signature of all
+	// participants are registered, the final signature will be combined
+	// and returned.
+	MuSig2CombineSig(ctx context.Context, sessionID [32]byte,
+		otherPartialSigs [][]byte) (bool, []byte, error)
 }
 
 // SignDescriptor houses the necessary information required to successfully
@@ -506,4 +513,27 @@ func (s *signerClient) MuSig2Sign(ctx context.Context, sessionID [32]byte,
 	}
 
 	return resp.LocalPartialSignature, nil
+}
+
+// MuSig2CombineSig combines the given partial signature(s) with the local one,
+// if it already exists. Once a partial signature of all participants are
+// registered, the final signature will be combined and returned.
+func (s *signerClient) MuSig2CombineSig(ctx context.Context, sessionID [32]byte,
+	otherPartialSigs [][]byte) (bool, []byte, error) {
+
+	req := &signrpc.MuSig2CombineSigRequest{
+		SessionId:              sessionID[:],
+		OtherPartialSignatures: otherPartialSigs,
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
+	resp, err := s.client.MuSig2CombineSig(rpcCtx, req)
+	if err != nil {
+		return false, nil, err
+	}
+
+	return resp.HaveAllSignatures, resp.FinalSignature, nil
 }
