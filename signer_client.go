@@ -68,6 +68,13 @@ type SignerClient interface {
 	// nonces present.
 	MuSig2RegisterNonces(ctx context.Context, sessionID [32]byte,
 		nonces [][musig2.PubNonceSize]byte) (bool, error)
+
+	// MuSig2Sign creates a partial signature for the 32 byte SHA256 digest
+	// of a message. This can only be called once all public nonces have
+	// been created. If the caller will not be responsible for combining
+	// the signatures, the cleanup bool should be set.
+	MuSig2Sign(ctx context.Context, sessionID [32]byte,
+		message [32]byte, cleanup bool) ([]byte, error)
 }
 
 // SignDescriptor houses the necessary information required to successfully
@@ -474,4 +481,29 @@ func (s *signerClient) MuSig2RegisterNonces(ctx context.Context,
 	}
 
 	return resp.HaveAllNonces, nil
+}
+
+// MuSig2Sign creates a partial signature for the 32 byte SHA256 digest of a
+// message. This can only be called once all public nonces have been created.
+// If the caller will not be responsible for combining the signatures, the
+// cleanup bool should be set.
+func (s *signerClient) MuSig2Sign(ctx context.Context, sessionID [32]byte,
+	message [32]byte, cleanup bool) ([]byte, error) {
+
+	req := &signrpc.MuSig2SignRequest{
+		SessionId:     sessionID[:],
+		MessageDigest: message[:],
+		Cleanup:       cleanup,
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
+	resp, err := s.client.MuSig2Sign(rpcCtx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.LocalPartialSignature, nil
 }
