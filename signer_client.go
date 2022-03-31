@@ -62,6 +62,12 @@ type SignerClient interface {
 	MuSig2CreateSession(ctx context.Context,
 		signerLoc *keychain.KeyLocator, signers [][32]byte,
 		opts ...MuSig2SessionOpts) (*input.MuSig2SessionInfo, error)
+
+	// MuSig2RegisterNonces registers additional public nonces for a musig2
+	// session. It returns a boolean indicating whether we have all of our
+	// nonces present.
+	MuSig2RegisterNonces(ctx context.Context, sessionID [32]byte,
+		nonces [][musig2.PubNonceSize]byte) (bool, error)
 }
 
 // SignDescriptor houses the necessary information required to successfully
@@ -446,4 +452,26 @@ func (s *signerClient) MuSig2CreateSession(ctx context.Context,
 	copy(session.SessionID[:], resp.SessionId)
 
 	return session, nil
+}
+
+// MuSig2RegisterNonces registers additional public nonces for a musig2 session.
+// It returns a boolean indicating whether we have all of our nonces present.
+func (s *signerClient) MuSig2RegisterNonces(ctx context.Context,
+	sessionID [32]byte, nonces [][musig2.PubNonceSize]byte) (bool, error) {
+
+	req := &signrpc.MuSig2RegisterNoncesRequest{
+		SessionId:               sessionID[:],
+		OtherSignerPublicNonces: noncesToBytes(nonces),
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
+	resp, err := s.client.MuSig2RegisterNonces(rpcCtx, req)
+	if err != nil {
+		return false, err
+	}
+
+	return resp.HaveAllNonces, nil
 }
