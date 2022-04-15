@@ -780,6 +780,46 @@
                 }
             ]
         },
+        "/signrpc.Signer/VerifyMessage": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "read"
+                }
+            ]
+        },
+        "/signrpc.Signer/MuSig2CreateSession": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "generate"
+                }
+            ]
+        },
+        "/signrpc.Signer/MuSig2RegisterNonces": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "generate"
+                }
+            ]
+        },
+        "/signrpc.Signer/MuSig2Sign": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "generate"
+                }
+            ]
+        },
+        "/signrpc.Signer/MuSig2CombineSig": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "generate"
+                }
+            ]
+        },
         "/verrpc.Versioner/GetVersion": {
             "permissions": [
                 {
