@@ -11,19 +11,9 @@ require (
 	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20221104092723-22fec76339a7
 	github.com/lightningnetwork/lnd/kvdb v1.3.1
 	github.com/stretchr/testify v1.8.1
-	go.etcd.io/bbolt v1.3.6
 	google.golang.org/grpc v1.53.0
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.1.0
-)
-
-require (
-	github.com/juju/errors v0.0.0-20220331221717-b38fca44723b // indirect
-	github.com/juju/retry v0.0.0-20220204093819-62423bf33287 // indirect
-	github.com/juju/version/v2 v2.0.0-20220204124744-fc9915e3d935 // indirect
-	github.com/prometheus/client_golang v1.11.1 // indirect
-	golang.org/x/crypto v0.1.0 // indirect
-	golang.org/x/net v0.7.0 // indirect
 )
 
 go 1.16
