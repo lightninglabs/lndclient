@@ -537,3 +537,21 @@ func (s *signerClient) MuSig2CombineSig(ctx context.Context, sessionID [32]byte,
 
 	return resp.HaveAllSignatures, resp.FinalSignature, nil
 }
+
+// MuSig2Cleanup allows a caller to clean up a session early in case where it's
+// obvious that the signing session won't succeed and the resources can be
+// released.
+func (s *signerClient) MuSig2Cleanup(ctx context.Context,
+	sessionID [32]byte) error {
+
+	req := &signrpc.MuSig2CleanupRequest{
+		SessionId: sessionID[:],
+	}
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
+	_, err := s.client.MuSig2Cleanup(rpcCtx, req)
+
+	return err
+}

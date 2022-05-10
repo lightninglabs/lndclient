@@ -820,6 +820,14 @@
                 }
             ]
         },
+        "/signrpc.Signer/MuSig2Cleanup": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "generate"
+                }
+            ]
+        },
         "/verrpc.Versioner/GetVersion": {
             "permissions": [
                 {
