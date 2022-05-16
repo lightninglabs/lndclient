@@ -41,9 +41,6 @@ type LightningClient interface {
 	EstimateFee(ctx context.Context, address btcutil.Address,
 		amt btcutil.Amount, confTarget int32) (btcutil.Amount, error)
 
-	EstimateFeeToP2WSH(ctx context.Context, amt btcutil.Amount,
-		confTarget int32) (btcutil.Amount, error)
-
 	// WalletBalance returns a summary of the node's wallet balance.
 	WalletBalance(ctx context.Context) (*WalletBalance, error)
 
@@ -1211,38 +1208,6 @@ func (s *lightningClient) EstimateFee(ctx context.Context,
 			TargetConf: confTarget,
 			AddrToAmount: map[string]int64{
 				address.String(): int64(amt),
-			},
-		},
-	)
-	if err != nil {
-		return 0, err
-	}
-	return btcutil.Amount(resp.FeeSat), nil
-}
-
-func (s *lightningClient) EstimateFeeToP2WSH(ctx context.Context,
-	amt btcutil.Amount, confTarget int32) (btcutil.Amount,
-	error) {
-
-	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-
-	// Generate dummy p2wsh address for fee estimation.
-	wsh := [32]byte{}
-	p2wshAddress, err := btcutil.NewAddressWitnessScriptHash(
-		wsh[:], s.params,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
-	resp, err := s.client.EstimateFee(
-		rpcCtx,
-		&lnrpc.EstimateFeeRequest{
-			TargetConf: confTarget,
-			AddrToAmount: map[string]int64{
-				p2wshAddress.String(): int64(amt),
 			},
 		},
 	)
