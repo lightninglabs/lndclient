@@ -36,6 +36,11 @@ type LightningClient interface {
 
 	GetInfo(ctx context.Context) (*Info, error)
 
+	// EstimateFee estimates the total fees for a transaction that pays the
+	// given amount to the passed address.
+	EstimateFee(ctx context.Context, address btcutil.Address,
+		amt btcutil.Amount, confTarget int32) (btcutil.Amount, error)
+
 	EstimateFeeToP2WSH(ctx context.Context, amt btcutil.Amount,
 		confTarget int32) (btcutil.Amount, error)
 
@@ -1188,6 +1193,31 @@ func newInfo(resp *lnrpc.GetInfoResponse) (*Info, error) {
 		InactiveChannels:    resp.NumInactiveChannels,
 		PendingChannels:     resp.NumPendingChannels,
 	}, nil
+}
+
+// EstimateFee estimates the total fees for a transaction that pays the given
+// amount to the passed address.
+func (s *lightningClient) EstimateFee(ctx context.Context,
+	address btcutil.Address, amt btcutil.Amount, confTarget int32) (
+	btcutil.Amount, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+	resp, err := s.client.EstimateFee(
+		rpcCtx,
+		&lnrpc.EstimateFeeRequest{
+			TargetConf: confTarget,
+			AddrToAmount: map[string]int64{
+				address.String(): int64(amt),
+			},
+		},
+	)
+	if err != nil {
+		return 0, err
+	}
+	return btcutil.Amount(resp.FeeSat), nil
 }
 
 func (s *lightningClient) EstimateFeeToP2WSH(ctx context.Context,
