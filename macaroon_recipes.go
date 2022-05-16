@@ -31,7 +31,6 @@ var (
 		"ConfirmedWalletBalance": "WalletBalance",
 		"Connect":                "ConnectPeer",
 		"DecodePaymentRequest":   "DecodePayReq",
-		"EstimateFeeToP2WSH":     "EstimateFee",
 		"ListTransactions":       "GetTransactions",
 		"PayInvoice":             "SendPaymentSync",
 		"UpdateChanPolicy":       "UpdateChannelPolicy",
