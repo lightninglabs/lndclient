@@ -38,6 +38,7 @@ var (
 		"SubscribeGraph":         "SubscribeChannelGraph",
 		"InterceptHtlcs":         "HtlcInterceptor",
 		"ImportMissionControl":   "XImportMissionControl",
+		"EstimateFeeRate":        "EstimateFee",
 	}
 )
 
