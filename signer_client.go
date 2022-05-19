@@ -82,6 +82,9 @@ type SignerClient interface {
 	// and returned.
 	MuSig2CombineSig(ctx context.Context, sessionID [32]byte,
 		otherPartialSigs [][]byte) (bool, []byte, error)
+
+	// MuSig2Cleanup removes a session from memory to free up resources.
+	MuSig2Cleanup(ctx context.Context, sessionID [32]byte) error
 }
 
 // SignDescriptor houses the necessary information required to successfully
@@ -193,8 +196,8 @@ func newSignerClient(conn grpc.ClientConnInterface,
 	}
 }
 
-func marshallSignDescriptors(signDescriptors []*SignDescriptor,
-) []*signrpc.SignDescriptor {
+func marshallSignDescriptors(
+	signDescriptors []*SignDescriptor) []*signrpc.SignDescriptor {
 
 	rpcSignDescs := make([]*signrpc.SignDescriptor, len(signDescriptors))
 	for i, signDesc := range signDescriptors {
