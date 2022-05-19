@@ -57,8 +57,8 @@ type WalletKitClient interface {
 		feeRate chainfee.SatPerKWeight,
 		label string) (*wire.MsgTx, error)
 
-	EstimateFee(ctx context.Context, confTarget int32) (chainfee.SatPerKWeight,
-		error)
+	EstimateFeeRate(ctx context.Context,
+		confTarget int32) (chainfee.SatPerKWeight, error)
 
 	// ListSweeps returns a list of sweep transaction ids known to our node.
 	// Note that this function only looks up transaction ids, and does not
@@ -320,7 +320,7 @@ func (m *walletKitClient) SendOutputs(ctx context.Context,
 	return tx, nil
 }
 
-func (m *walletKitClient) EstimateFee(ctx context.Context, confTarget int32) (
+func (m *walletKitClient) EstimateFeeRate(ctx context.Context, confTarget int32) (
 	chainfee.SatPerKWeight, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
