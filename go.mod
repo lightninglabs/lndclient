@@ -7,7 +7,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.0
-	github.com/lightningnetwork/lnd v0.14.1-beta.0.20220509085531-10f721399893
+	github.com/lightningnetwork/lnd v0.15.0-beta.rc1
 	github.com/lightningnetwork/lnd/kvdb v1.3.1
 	github.com/stretchr/testify v1.7.1
 	go.etcd.io/bbolt v1.3.6
