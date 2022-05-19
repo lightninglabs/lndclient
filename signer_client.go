@@ -122,16 +122,29 @@ type SignDescriptor struct {
 	// DoubleTweak, not both.
 	DoubleTweak *btcec.PrivateKey
 
+	// The 32 byte input to the taproot tweak derivation that is used to
+	// derive the output key from an internal key: outputKey = internalKey +
+	// tagged_hash("tapTweak", internalKey || tapTweak).
+	//
+	// When doing a BIP 86 spend, this field can be an empty byte slice.
+	//
+	// When doing a normal key path spend, with the output key committing to
+	// an actual script root, then this field should be: the tapscript root
+	// hash.
+	TapTweak []byte
+
 	// WitnessScript is the full script required to properly redeem the
-	// output. This field should be set to the full script if a p2wsh
-	// output is being signed. For p2wkh it should be set to the hashed
-	// script (PkScript).
+	// output. This field should be set to the full script if a p2wsh or
+	// p2tr output is being signed. For p2wkh it should be set to the hashed
+	// script (PkScript), for p2tr this should be the raw leaf script that's
+	// being spent.
 	WitnessScript []byte
 
-	// TaprootKeySpend indicates that instead of a witness script being
-	// spent by the signature that results from this signing request, a
-	// taproot key spend is performed instead.
-	TaprootKeySpend bool
+	// TaprootKeySpend specifies how the input should be signed. Depending
+	// on the method, either the tap_tweak, witness_script or both need to
+	// be specified. Defaults to SegWit v0 signing to be backward compatible
+	// with older RPC clients.
+	SignMethod input.SignMethod
 
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,
@@ -145,6 +158,23 @@ type SignDescriptor struct {
 	// InputIndex is the target input within the transaction that should be
 	// signed.
 	InputIndex int
+}
+
+// MarshalSignMethod turns the native sign method into the RPC counterpart.
+func MarshalSignMethod(signMethod input.SignMethod) signrpc.SignMethod {
+	switch signMethod {
+	case input.TaprootKeySpendBIP0086SignMethod:
+		return signrpc.SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND_BIP0086
+
+	case input.TaprootKeySpendSignMethod:
+		return signrpc.SignMethod_SIGN_METHOD_TAPROOT_KEY_SPEND
+
+	case input.TaprootScriptSpendSignMethod:
+		return signrpc.SignMethod_SIGN_METHOD_TAPROOT_SCRIPT_SPEND
+
+	default:
+		return signrpc.SignMethod_SIGN_METHOD_WITNESS_V0
+	}
 }
 
 type signerClient struct {
@@ -189,8 +219,8 @@ func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 		}
 
 		rpcSignDescs[i] = &signrpc.SignDescriptor{
-			WitnessScript:   signDesc.WitnessScript,
-			TaprootKeySpend: signDesc.TaprootKeySpend,
+			WitnessScript: signDesc.WitnessScript,
+			SignMethod:    MarshalSignMethod(signDesc.SignMethod),
 			Output: &signrpc.TxOut{
 				PkScript: signDesc.Output.PkScript,
 				Value:    signDesc.Output.Value,
@@ -203,6 +233,7 @@ func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 			},
 			SingleTweak: signDesc.SingleTweak,
 			DoubleTweak: doubleTweak,
+			TapTweak:    signDesc.TapTweak,
 		}
 	}
 
