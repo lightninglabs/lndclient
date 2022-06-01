@@ -39,6 +39,7 @@ var (
 		"InterceptHtlcs":         "HtlcInterceptor",
 		"ImportMissionControl":   "XImportMissionControl",
 		"EstimateFeeRate":        "EstimateFee",
+		"EstimateFeeToP2WSH":     "EstimateFee",
 	}
 )
 
