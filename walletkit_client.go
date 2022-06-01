@@ -50,6 +50,11 @@ type WalletKitClient interface {
 
 	NextAddr(ctx context.Context) (btcutil.Address, error)
 
+	// NextAddrWithType returns the next unused address within the wallet
+	// of the requested address type.
+	NextAddrWithType(ctx context.Context,
+		addrType walletrpc.AddressType) (btcutil.Address, error)
+
 	PublishTransaction(ctx context.Context, tx *wire.MsgTx,
 		label string) error
 
@@ -263,6 +268,30 @@ func (m *walletKitClient) NextAddr(ctx context.Context) (
 
 	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
 	resp, err := m.client.NextAddr(rpcCtx, &walletrpc.AddrRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	addr, err := btcutil.DecodeAddress(resp.Addr, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return addr, nil
+}
+
+func (m *walletKitClient) NextAddrWithType(ctx context.Context,
+	addrType walletrpc.AddressType) (btcutil.Address, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+	resp, err := m.client.NextAddr(
+		rpcCtx, &walletrpc.AddrRequest{
+			Type: addrType,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
