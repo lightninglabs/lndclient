@@ -41,6 +41,12 @@ type LightningClient interface {
 	EstimateFee(ctx context.Context, address btcutil.Address,
 		amt btcutil.Amount, confTarget int32) (btcutil.Amount, error)
 
+	// EstimateFeeToP2WSH estimates the total chain fees in satoshis to send
+	// the given amount to a single P2WSH output with the given target
+	// confirmation.
+	EstimateFeeToP2WSH(ctx context.Context, amt btcutil.Amount,
+		confTarget int32) (btcutil.Amount, error)
+
 	// WalletBalance returns a summary of the node's wallet balance.
 	WalletBalance(ctx context.Context) (*WalletBalance, error)
 
@@ -1215,6 +1221,23 @@ func (s *lightningClient) EstimateFee(ctx context.Context,
 		return 0, err
 	}
 	return btcutil.Amount(resp.FeeSat), nil
+}
+
+// EstimateFeeToP2WSH estimates the total chain fees in satoshis to send the
+// given amount to a single P2WSH output with the given target confirmation.
+func (s *lightningClient) EstimateFeeToP2WSH(ctx context.Context,
+	amt btcutil.Amount, confTarget int32) (btcutil.Amount, error) {
+
+	// Generate a dummy p2wsh address for fee estimation.
+	wsh := [32]byte{}
+	p2wshAddress, err := btcutil.NewAddressWitnessScriptHash(
+		wsh[:], s.params,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return s.EstimateFee(ctx, p2wshAddress, amt, confTarget)
 }
 
 // PayInvoice pays an invoice.
