@@ -67,7 +67,7 @@ type SignerClient interface {
 	// session. It returns a boolean indicating whether we have all of our
 	// nonces present.
 	MuSig2RegisterNonces(ctx context.Context, sessionID [32]byte,
-		nonces [][musig2.PubNonceSize]byte) (bool, error)
+		nonces [][66]byte) (bool, error)
 
 	// MuSig2Sign creates a partial signature for the 32 byte SHA256 digest
 	// of a message. This can only be called once all public nonces have
@@ -505,7 +505,7 @@ func (s *signerClient) MuSig2CreateSession(ctx context.Context,
 // MuSig2RegisterNonces registers additional public nonces for a musig2 session.
 // It returns a boolean indicating whether we have all of our nonces present.
 func (s *signerClient) MuSig2RegisterNonces(ctx context.Context,
-	sessionID [32]byte, nonces [][musig2.PubNonceSize]byte) (bool, error) {
+	sessionID [32]byte, nonces [][66]byte) (bool, error) {
 
 	req := &signrpc.MuSig2RegisterNoncesRequest{
 		SessionId:               sessionID[:],
