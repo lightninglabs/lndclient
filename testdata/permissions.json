@@ -884,6 +884,14 @@
                 }
             ]
         },
+        "/walletrpc.WalletKit/SignPsbt": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/walletrpc.WalletKit/LabelTransaction": {
             "permissions": [
                 {

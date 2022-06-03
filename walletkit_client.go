@@ -1,6 +1,7 @@
 package lndclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -73,10 +75,59 @@ type WalletKitClient interface {
 	BumpFee(context.Context, wire.OutPoint, chainfee.SatPerKWeight) error
 
 	// ListAccounts retrieves all accounts belonging to the wallet by default.
-	// Optional name and addressType can be provided to filter through all of the
+	// Optional name and addressType can be provided to filter through all the
 	// wallet accounts and return only those matching.
 	ListAccounts(ctx context.Context, name string,
 		addressType walletrpc.AddressType) ([]*walletrpc.Account, error)
+
+	// FundPsbt creates a fully populated PSBT that contains enough inputs
+	// to fund the outputs specified in the template. There are two ways of
+	// specifying a template: Either by passing in a PSBT with at least one
+	// output declared or by passing in a raw TxTemplate message. If there
+	// are no inputs specified in the template, coin selection is performed
+	// automatically. If the template does contain any inputs, it is assumed
+	// that full coin selection happened externally and no additional inputs
+	// are added. If the specified inputs aren't enough to fund the outputs
+	// with the given fee rate, an error is returned.
+	// After either selecting or verifying the inputs, all input UTXOs are
+	// locked with an internal app ID.
+	//
+	// NOTE: If this method returns without an error, it is the caller's
+	// responsibility to either spend the locked UTXOs (by finalizing and
+	// then publishing the transaction) or to unlock/release the locked
+	// UTXOs in case of an error on the caller's side.
+	FundPsbt(ctx context.Context,
+		req *walletrpc.FundPsbtRequest) (*psbt.Packet, int32,
+		[]*walletrpc.UtxoLease, error)
+
+	// SignPsbt expects a partial transaction with all inputs and outputs
+	// fully declared and tries to sign all unsigned inputs that have all
+	// required fields (UTXO information, BIP32 derivation information,
+	// witness or sig scripts) set.
+	// If no error is returned, the PSBT is ready to be given to the next
+	// signer or to be finalized if lnd was the last signer.
+	//
+	// NOTE: This RPC only signs inputs (and only those it can sign), it
+	// does not perform any other tasks (such as coin selection, UTXO
+	// locking or input/output/fee value validation, PSBT finalization). Any
+	// input that is incomplete will be skipped.
+	SignPsbt(ctx context.Context, packet *psbt.Packet) (*psbt.Packet, error)
+
+	// FinalizePsbt expects a partial transaction with all inputs and
+	// outputs fully declared and tries to sign all inputs that belong to
+	// the wallet. Lnd must be the last signer of the transaction. That
+	// means, if there are any unsigned non-witness inputs or inputs without
+	// UTXO information attached or inputs without witness data that do not
+	// belong to lnd's wallet, this method will fail. If no error is
+	// returned, the PSBT is ready to be extracted and the final TX within
+	// to be broadcast.
+	//
+	// NOTE: This method does NOT publish the transaction once finalized. It
+	// is the caller's responsibility to either publish the transaction on
+	// success or unlock/release any locked UTXOs in case of an error in
+	// this method.
+	FinalizePsbt(ctx context.Context, packet *psbt.Packet,
+		account string) (*psbt.Packet, *wire.MsgTx, error)
 }
 
 type walletKitClient struct {
@@ -406,4 +457,135 @@ func (m *walletKitClient) ListAccounts(ctx context.Context, name string,
 	}
 
 	return resp.GetAccounts(), nil
+}
+
+// FundPsbt creates a fully populated PSBT that contains enough inputs
+// to fund the outputs specified in the template. There are two ways of
+// specifying a template: Either by passing in a PSBT with at least one
+// output declared or by passing in a raw TxTemplate message. If there
+// are no inputs specified in the template, coin selection is performed
+// automatically. If the template does contain any inputs, it is assumed
+// that full coin selection happened externally and no additional inputs
+// are added. If the specified inputs aren't enough to fund the outputs
+// with the given fee rate, an error is returned.
+// After either selecting or verifying the inputs, all input UTXOs are
+// locked with an internal app ID.
+//
+// NOTE: If this method returns without an error, it is the caller's
+// responsibility to either spend the locked UTXOs (by finalizing and
+// then publishing the transaction) or to unlock/release the locked
+// UTXOs in case of an error on the caller's side.
+func (m *walletKitClient) FundPsbt(ctx context.Context,
+	req *walletrpc.FundPsbtRequest) (*psbt.Packet, int32,
+	[]*walletrpc.UtxoLease, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	resp, err := m.client.FundPsbt(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx), req,
+	)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	packet, err := psbt.NewFromRawBytes(
+		bytes.NewReader(resp.FundedPsbt), false,
+	)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	return packet, resp.ChangeOutputIndex, resp.LockedUtxos, nil
+}
+
+// SignPsbt expects a partial transaction with all inputs and outputs
+// fully declared and tries to sign all unsigned inputs that have all
+// required fields (UTXO information, BIP32 derivation information,
+// witness or sig scripts) set.
+// If no error is returned, the PSBT is ready to be given to the next
+// signer or to be finalized if lnd was the last signer.
+//
+// NOTE: This RPC only signs inputs (and only those it can sign), it
+// does not perform any other tasks (such as coin selection, UTXO
+// locking or input/output/fee value validation, PSBT finalization). Any
+// input that is incomplete will be skipped.
+func (m *walletKitClient) SignPsbt(ctx context.Context,
+	packet *psbt.Packet) (*psbt.Packet, error) {
+
+	var psbtBuf bytes.Buffer
+	if err := packet.Serialize(&psbtBuf); err != nil {
+		return nil, err
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	resp, err := m.client.SignPsbt(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx),
+		&walletrpc.SignPsbtRequest{FundedPsbt: psbtBuf.Bytes()},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	signedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(resp.SignedPsbt), false,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return signedPacket, nil
+}
+
+// FinalizePsbt expects a partial transaction with all inputs and
+// outputs fully declared and tries to sign all inputs that belong to
+// the wallet. Lnd must be the last signer of the transaction. That
+// means, if there are any unsigned non-witness inputs or inputs without
+// UTXO information attached or inputs without witness data that do not
+// belong to lnd's wallet, this method will fail. If no error is
+// returned, the PSBT is ready to be extracted and the final TX within
+// to be broadcast.
+//
+// NOTE: This method does NOT publish the transaction once finalized. It
+// is the caller's responsibility to either publish the transaction on
+// success or unlock/release any locked UTXOs in case of an error in
+// this method.
+func (m *walletKitClient) FinalizePsbt(ctx context.Context, packet *psbt.Packet,
+	account string) (*psbt.Packet, *wire.MsgTx, error) {
+
+	var psbtBuf bytes.Buffer
+	if err := packet.Serialize(&psbtBuf); err != nil {
+		return nil, nil, err
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	resp, err := m.client.FinalizePsbt(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx),
+		&walletrpc.FinalizePsbtRequest{
+			FundedPsbt: psbtBuf.Bytes(),
+			Account:    account,
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	finalizedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(resp.SignedPsbt), false,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	finalTx := wire.NewMsgTx(2)
+	err = finalTx.Deserialize(bytes.NewReader(resp.RawFinalTx))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return finalizedPacket, finalTx, nil
 }
