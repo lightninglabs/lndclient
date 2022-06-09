@@ -56,6 +56,16 @@ type RouterClient interface {
 	// currently held will be released by lnd.
 	InterceptHtlcs(ctx context.Context,
 		handler HtlcInterceptHandler) error
+
+	// QueryMissionControl will query Mission Control state from lnd.
+	QueryMissionControl(ctx context.Context) ([]MissionControlEntry, error)
+
+	// ImportMissionControl imports a set of pathfinding results to lnd.
+	ImportMissionControl(ctx context.Context,
+		entries []MissionControlEntry, force bool) error
+
+	// ResetMissionControl resets the Mission Control state of lnd.
+	ResetMissionControl(ctx context.Context) error
 }
 
 // PaymentStatus describe the state of a payment.
@@ -329,11 +339,12 @@ type routerClient struct {
 	client       routerrpc.RouterClient
 	routerKitMac serializedMacaroon
 	timeout      time.Duration
+	quitOnce     sync.Once
 	quit         chan struct{}
 	wg           sync.WaitGroup
 }
 
-func newRouterClient(conn *grpc.ClientConn,
+func newRouterClient(conn grpc.ClientConnInterface,
 	routerKitMac serializedMacaroon, timeout time.Duration) *routerClient {
 
 	return &routerClient{
@@ -347,7 +358,10 @@ func newRouterClient(conn *grpc.ClientConn,
 // WaitForFinished sends the signal for the router client to shut down and waits
 // for all goroutines to exit.
 func (r *routerClient) WaitForFinished() {
-	close(r.quit)
+	r.quitOnce.Do(func() {
+		close(r.quit)
+	})
+
 	r.wg.Wait()
 }
 
@@ -852,4 +866,136 @@ func rpcInterceptorResponse(request InterceptedHtlc,
 	}
 
 	return rpcResp, nil
+}
+
+// MissionControlEntry contains a mission control entry for a node pair.
+type MissionControlEntry struct {
+	// NodeFrom is the node that the payment was forwarded from.
+	NodeFrom route.Vertex
+
+	// NodeTo is the node that the payment was forwarded to.
+	NodeTo route.Vertex
+
+	// FailTime is the time for our failed amount.
+	FailTime time.Time
+
+	// FailAmt is the payment amount that failed in millisatoshis.
+	FailAmt lnwire.MilliSatoshi
+
+	// SuccessTime is the time for our success amount.
+	SuccessTime time.Time
+
+	// SuccessAmt is the payment amount that succeeded in millisatoshis.
+	SuccessAmt lnwire.MilliSatoshi
+}
+
+// QueryMissionControl will query Mission Control state from lnd.
+func (r *routerClient) QueryMissionControl(ctx context.Context) (
+	[]MissionControlEntry, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	req := &routerrpc.QueryMissionControlRequest{}
+	res, err := r.client.QueryMissionControl(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx), req,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]MissionControlEntry, 0, len(res.Pairs))
+	for _, pair := range res.Pairs {
+		if pair.History == nil {
+			continue
+		}
+
+		nodeFrom, err := route.NewVertexFromBytes(pair.NodeFrom)
+		if err != nil {
+			return nil, err
+		}
+
+		nodeTo, err := route.NewVertexFromBytes(pair.NodeTo)
+		if err != nil {
+			return nil, err
+		}
+
+		entry := MissionControlEntry{
+			NodeFrom: nodeFrom,
+			NodeTo:   nodeTo,
+			FailAmt: lnwire.MilliSatoshi(
+				pair.History.FailAmtMsat,
+			),
+			SuccessAmt: lnwire.MilliSatoshi(
+				pair.History.SuccessAmtMsat,
+			),
+		}
+
+		if pair.History.FailTime != 0 {
+			entry.FailTime = time.Unix(pair.History.FailTime, 0)
+		}
+
+		if pair.History.SuccessTime != 0 {
+			entry.SuccessTime = time.Unix(
+				pair.History.SuccessTime, 0,
+			)
+		}
+
+		result = append(result, entry)
+	}
+
+	return result, nil
+}
+
+// ImportMissionControl imports a set of pathfinding results to mission control.
+// These results are not persisted across restarts.
+func (r *routerClient) ImportMissionControl(ctx context.Context,
+	entries []MissionControlEntry, force bool) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	req := &routerrpc.XImportMissionControlRequest{
+		Pairs: make([]*routerrpc.PairHistory, len(entries)),
+		Force: force,
+	}
+
+	for i, entry := range entries {
+		entry := entry
+		rpcEntry := &routerrpc.PairHistory{
+			NodeFrom: entry.NodeFrom[:],
+			NodeTo:   entry.NodeTo[:],
+			History: &routerrpc.PairData{
+				SuccessAmtMsat: int64(entry.SuccessAmt),
+				FailAmtMsat:    int64(entry.FailAmt),
+			},
+		}
+
+		if !entry.FailTime.IsZero() {
+			rpcEntry.History.FailTime = entry.FailTime.Unix()
+		}
+
+		if !entry.SuccessTime.IsZero() {
+			rpcEntry.History.SuccessTime = entry.SuccessTime.Unix()
+		}
+
+		req.Pairs[i] = rpcEntry
+	}
+
+	_, err := r.client.XImportMissionControl(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx), req,
+	)
+	return err
+}
+
+// ResetMissionControl resets the Mission Control state of lnd.
+func (r *routerClient) ResetMissionControl(ctx context.Context) error {
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.ResetMissionControl(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.ResetMissionControlRequest{},
+	)
+	return err
 }

@@ -140,6 +140,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/CheckMacaroonPermissions": {
+            "permissions": [
+                {
+                    "entity": "macaroon",
+                    "action": "read"
+                }
+            ]
+        },
         "/lnrpc.Lightning/CloseChannel": {
             "permissions": [
                 {
@@ -436,6 +444,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/RegisterRPCMiddleware": {
+            "permissions": [
+                {
+                    "entity": "macaroon",
+                    "action": "write"
+                }
+            ]
+        },
         "/lnrpc.Lightning/RestoreChannelBackups": {
             "permissions": [
                 {
@@ -692,6 +708,22 @@
                 }
             ]
         },
+	"/routerrpc.Router/QueryMissionControl": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "read"
+                }
+            ]
+        },
+	"/routerrpc.Router/XImportMissionControl": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/signrpc.Signer/ComputeInputScript": {
             "permissions": [
                 {
@@ -860,6 +892,14 @@
                 }
             ]
         },
+		"/walletrpc.WalletKit/ListAccounts": {
+			"permissions":[
+				{
+					"entity": "onchain",
+					"action": "read"
+				}
+			]
+		},
         "/watchtowerrpc.Watchtower/GetInfo": {
             "permissions": [
                 {

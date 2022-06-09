@@ -9,6 +9,21 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+var (
+	// defaultMacaroonFileNames is the default list of macaroon file names
+	// that lndclient will attempt to load if a macaroon directory is given
+	// instead of a single custom macaroon.
+	defaultMacaroonFileNames = []string{
+		invoiceMacFilename,
+		chainMacFilename,
+		signerMacFilename,
+		walletKitMacFilename,
+		routerMacFilename,
+		adminMacFilename,
+		readonlyMacFilename,
+	}
+)
+
 // loadMacaroon tries to load a macaroon file either from the default macaroon
 // dir and the default filename or, if specified, from the custom macaroon path
 // that overwrites the former two parameters.
@@ -53,106 +68,53 @@ func (s serializedMacaroon) WithMacaroonAuth(ctx context.Context) context.Contex
 // macaroonPouch holds the set of macaroons we need to interact with lnd for
 // Loop. Each sub-server has its own macaroon, and for the remaining temporary
 // calls that directly hit lnd, we'll use the admin macaroon.
-type macaroonPouch struct {
-	// invoiceMac is the macaroon for the invoices sub-server.
-	invoiceMac serializedMacaroon
-
-	// chainMac is the macaroon for the ChainNotifier sub-server.
-	chainMac serializedMacaroon
-
-	// signerMac is the macaroon for the Signer sub-server.
-	signerMac serializedMacaroon
-
-	// walletKitMac is the macaroon for the WalletKit sub-server.
-	walletKitMac serializedMacaroon
-
-	// routerMac is the macaroon for the router sub-server.
-	routerMac serializedMacaroon
-
-	// adminMac is the primary admin macaroon for lnd.
-	adminMac serializedMacaroon
-
-	// readonlyMac is the primary read-only macaroon for lnd.
-	readonlyMac serializedMacaroon
-}
+type macaroonPouch map[string]serializedMacaroon
 
 // newMacaroonPouch returns a new instance of a fully populated macaroonPouch
 // given the directory where all the macaroons are stored.
-func newMacaroonPouch(macaroonDir, customMacPath string) (*macaroonPouch,
+func newMacaroonPouch(macaroonDir, customMacPath, customMacHex string) (macaroonPouch,
 	error) {
 
 	// If a custom macaroon is specified, we assume it contains all
 	// permissions needed for the different subservers to function and we
 	// use it for all of them.
+	var (
+		mac serializedMacaroon
+		err error
+	)
+
 	if customMacPath != "" {
-		mac, err := loadMacaroon("", "", customMacPath)
+		mac, err = loadMacaroon("", "", customMacPath)
 		if err != nil {
 			return nil, err
 		}
+	} else if customMacHex != "" {
+		mac = serializedMacaroon(customMacHex)
+	}
 
-		return &macaroonPouch{
-			invoiceMac:   mac,
-			chainMac:     mac,
-			signerMac:    mac,
-			walletKitMac: mac,
-			routerMac:    mac,
-			adminMac:     mac,
-			readonlyMac:  mac,
+	if mac != "" {
+		return macaroonPouch{
+			invoiceMacFilename:   mac,
+			chainMacFilename:     mac,
+			signerMacFilename:    mac,
+			walletKitMacFilename: mac,
+			routerMacFilename:    mac,
+			adminMacFilename:     mac,
+			readonlyMacFilename:  mac,
 		}, nil
 	}
 
 	var (
-		m   = &macaroonPouch{}
-		err error
+		m = make(macaroonPouch)
 	)
 
-	m.invoiceMac, err = loadMacaroon(
-		macaroonDir, defaultInvoiceMacaroonFilename, customMacPath,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	m.chainMac, err = loadMacaroon(
-		macaroonDir, defaultChainMacaroonFilename, customMacPath,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	m.signerMac, err = loadMacaroon(
-		macaroonDir, defaultSignerFilename, customMacPath,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	m.walletKitMac, err = loadMacaroon(
-		macaroonDir, defaultWalletKitMacaroonFilename, customMacPath,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	m.routerMac, err = loadMacaroon(
-		macaroonDir, defaultRouterMacaroonFilename, customMacPath,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	m.adminMac, err = loadMacaroon(
-		macaroonDir, defaultAdminMacaroonFilename, customMacPath,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	m.readonlyMac, err = loadMacaroon(
-		macaroonDir, defaultReadonlyFilename, customMacPath,
-	)
-	if err != nil {
-		return nil, err
+	for _, macFileName := range defaultMacaroonFileNames {
+		m[macFileName], err = loadMacaroon(
+			macaroonDir, macFileName, customMacPath,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return m, nil

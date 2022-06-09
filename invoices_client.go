@@ -41,7 +41,7 @@ type invoicesClient struct {
 	wg         sync.WaitGroup
 }
 
-func newInvoicesClient(conn *grpc.ClientConn,
+func newInvoicesClient(conn grpc.ClientConnInterface,
 	invoiceMac serializedMacaroon, timeout time.Duration) *invoicesClient {
 
 	return &invoicesClient{

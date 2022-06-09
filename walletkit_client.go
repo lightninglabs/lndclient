@@ -27,13 +27,14 @@ type WalletKitClient interface {
 	ListUnspent(ctx context.Context, minConfs, maxConfs int32) (
 		[]*lnwallet.Utxo, error)
 
-	// LeaseOutput locks an output to the given ID, preventing it from being
-	// available for any future coin selection attempts. The absolute time
-	// of the lock's expiration is returned. The expiration of the lock can
-	// be extended by successive invocations of this call. Outputs can be
-	// unlocked before their expiration through `ReleaseOutput`.
+	// LeaseOutput locks an output to the given ID for the lease time
+	// provided, preventing it from being available for any future coin
+	// selection attempts. The absolute time of the lock's expiration is
+	// returned. The expiration of the lock can be extended by successive
+	// invocations of this call. Outputs can be unlocked before their
+	// expiration through `ReleaseOutput`.
 	LeaseOutput(ctx context.Context, lockID wtxmgr.LockID,
-		op wire.OutPoint) (time.Time, error)
+		op wire.OutPoint, leaseTime time.Duration) (time.Time, error)
 
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
@@ -70,6 +71,12 @@ type WalletKitClient interface {
 	// used in a previous BumpFee call, then a transaction replacing the
 	// previous is broadcast, resulting in a replace-by-fee (RBF) scenario.
 	BumpFee(context.Context, wire.OutPoint, chainfee.SatPerKWeight) error
+
+	// ListAccounts retrieves all accounts belonging to the wallet by default.
+	// Optional name and addressType can be provided to filter through all of the
+	// wallet accounts and return only those matching.
+	ListAccounts(ctx context.Context, name string,
+		addressType walletrpc.AddressType) ([]*walletrpc.Account, error)
 }
 
 type walletKitClient struct {
@@ -82,7 +89,7 @@ type walletKitClient struct {
 // WalletKitClient interface.
 var _ WalletKitClient = (*walletKitClient)(nil)
 
-func newWalletKitClient(conn *grpc.ClientConn,
+func newWalletKitClient(conn grpc.ClientConnInterface,
 	walletKitMac serializedMacaroon, timeout time.Duration) *walletKitClient {
 
 	return &walletKitClient{
@@ -153,7 +160,7 @@ func (m *walletKitClient) ListUnspent(ctx context.Context, minConfs,
 // successive invocations of this call. Outputs can be unlocked before their
 // expiration through `ReleaseOutput`.
 func (m *walletKitClient) LeaseOutput(ctx context.Context, lockID wtxmgr.LockID,
-	op wire.OutPoint) (time.Time, error) {
+	op wire.OutPoint, leaseTime time.Duration) (time.Time, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
@@ -165,6 +172,7 @@ func (m *walletKitClient) LeaseOutput(ctx context.Context, lockID wtxmgr.LockID,
 			TxidBytes:   op.Hash[:],
 			OutputIndex: op.Index,
 		},
+		ExpirationSeconds: uint64(leaseTime.Seconds()),
 	})
 	if err != nil {
 		return time.Time{}, err
@@ -383,4 +391,27 @@ func (m *walletKitClient) BumpFee(ctx context.Context, op wire.OutPoint,
 		},
 	)
 	return err
+}
+
+// ListAccounts retrieves all accounts belonging to the wallet by default.
+// Optional name and addressType can be provided to filter through all of the
+// wallet accounts and return only those matching.
+func (m *walletKitClient) ListAccounts(ctx context.Context, name string,
+	addressType walletrpc.AddressType) ([]*walletrpc.Account, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	resp, err := m.client.ListAccounts(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx),
+		&walletrpc.ListAccountsRequest{
+			Name:        name,
+			AddressType: addressType,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.GetAccounts(), nil
 }

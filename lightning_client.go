@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -181,6 +182,22 @@ type LightningClient interface {
 	// vertices.
 	QueryRoutes(ctx context.Context, req QueryRoutesRequest) (
 		*QueryRoutesResponse, error)
+
+	// CheckMacaroonPermissions allows a client to check the validity of a
+	// macaroon.
+	CheckMacaroonPermissions(ctx context.Context, macaroon []byte,
+		permissions []MacaroonPermission, fullMethod string) (bool,
+		error)
+
+	// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor
+	// chain. A gRPC middleware is software component external to lnd that
+	// aims to add additional business logic to lnd by observing/
+	// intercepting/validating incoming gRPC client requests and (if needed)
+	// replacing/overwriting outgoing messages before they're sent to the
+	// client.
+	RegisterRPCMiddleware(ctx context.Context, middlewareName,
+		customCaveatName string, readOnly bool, timeout time.Duration,
+		intercept InterceptFunction) (chan error, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -433,6 +450,10 @@ const (
 	// InactiveChannelUpdate indicates that the channel event holds
 	// information about a channel that became inactive.
 	InactiveChannelUpdate
+
+	// FullyResolvedChannelUpdate indicates that the channel event holds
+	// information about a channel has been fully closed.
+	FullyResolvedChannelUpdate
 )
 
 // ChannelEventUpdate holds the data fields and type for a particular channel
@@ -884,6 +905,10 @@ type AcceptorRequest struct {
 	// ChannelFlags is a bit-field which the initiator uses to specify proposed
 	// channel behavior.
 	ChannelFlags uint32
+
+	// CommitmentType is the commitment type that the initiator would like
+	// to use for the channel.
+	CommitmentType *lnwallet.CommitmentType
 }
 
 func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
@@ -896,6 +921,32 @@ func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
 
 	var pending [32]byte
 	copy(pending[:], req.PendingChanId)
+
+	var commitmentType *lnwallet.CommitmentType
+	switch req.CommitmentType {
+	case lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE:
+		break
+
+	case lnrpc.CommitmentType_LEGACY:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeLegacy
+
+	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeTweakless
+
+	case lnrpc.CommitmentType_ANCHORS:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx
+
+	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeScriptEnforcedLease
+
+	default:
+		return nil, fmt.Errorf("unhandled commitment type %v",
+			req.CommitmentType)
+	}
 
 	return &AcceptorRequest{
 		NodePubkey:       pk,
@@ -911,6 +962,7 @@ func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
 		CsvDelay:         req.CsvDelay,
 		MaxAcceptedHtlcs: req.MaxAcceptedHtlcs,
 		ChannelFlags:     req.ChannelFlags,
+		CommitmentType:   commitmentType,
 	}, nil
 }
 
@@ -989,9 +1041,6 @@ type Hop struct {
 	// ChannelID is the short channel ID of the forwarding channel.
 	ChannelID uint64
 
-	// Capacity is the channel capacity.
-	Capacity btcutil.Amount
-
 	// Expiry is the timelock value.
 	Expiry uint32
 
@@ -1061,7 +1110,7 @@ type lightningClient struct {
 	adminMac serializedMacaroon
 }
 
-func newLightningClient(conn *grpc.ClientConn, timeout time.Duration,
+func newLightningClient(conn grpc.ClientConnInterface, timeout time.Duration,
 	params *chaincfg.Params, adminMac serializedMacaroon) *lightningClient {
 
 	return &lightningClient{
@@ -1258,9 +1307,9 @@ func (s *lightningClient) payInvoice(ctx context.Context, invoice string,
 					return &PaymentResult{Err: err}
 				}
 				return &PaymentResult{
-					PaidFee: btcutil.Amount(r.TotalFees),
+					PaidFee: btcutil.Amount(r.TotalFees), // nolint:staticcheck
 					PaidAmt: btcutil.Amount(
-						r.TotalAmt - r.TotalFees,
+						r.TotalAmt - r.TotalFees, // nolint:staticcheck
 					),
 					Preimage: preimage,
 				}
@@ -1723,6 +1772,15 @@ type WaitingCloseChannel struct {
 
 	// RemotePending is the txid of the remote party's pending commit.
 	RemotePending chainhash.Hash
+
+	// ChanStatusFlags specifies the current channel state, examples:
+	//   - ChanStatusBorked|ChanStatusCommitBroadcasted|ChanStatusLocalCloseInitiator
+	//   - ChanStatusCoopBroadcasted|ChanStatusLocalCloseInitiator
+	//   - ChanStatusCoopBroadcasted|ChanStatusRemoteCloseInitiator
+	ChanStatusFlags string
+
+	// CloseTxid is the close transaction that's broadcast.
+	CloseTxid chainhash.Hash
 }
 
 // PendingChannels returns a list of lnd's pending channels.
@@ -1790,11 +1848,18 @@ func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels
 			return nil, err
 		}
 
+		hash, err := chainhash.NewHashFromStr(waiting.ClosingTxid)
+		if err != nil {
+			return nil, err
+		}
+
 		closing := WaitingCloseChannel{
-			PendingChannel: *channel,
-			LocalTxid:      *local,
-			RemoteTxid:     *remote,
-			RemotePending:  *remotePending,
+			PendingChannel:  *channel,
+			LocalTxid:       *local,
+			RemoteTxid:      *remote,
+			RemotePending:   *remotePending,
+			ChanStatusFlags: waiting.Channel.ChanStatusFlags,
+			CloseTxid:       *hash,
 		}
 		pending.WaitingClose[i] = closing
 	}
@@ -2020,7 +2085,7 @@ func (s *lightningClient) ForwardingHistory(ctx context.Context,
 	events := make([]ForwardingEvent, len(response.ForwardingEvents))
 	for i, event := range response.ForwardingEvents {
 		events[i] = ForwardingEvent{
-			Timestamp:     time.Unix(int64(event.Timestamp), 0),
+			Timestamp:     time.Unix(int64(event.Timestamp), 0), // nolint:staticcheck
 			ChannelIn:     event.ChanIdIn,
 			ChannelOut:    event.ChanIdOut,
 			AmountMsatIn:  lnwire.MilliSatoshi(event.AmtInMsat),
@@ -2331,6 +2396,19 @@ func (s *lightningClient) getChannelEventUpdate(
 	case lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL:
 		result.UpdateType = InactiveChannelUpdate
 		channelPoint := rpcChannelEventUpdate.GetInactiveChannel()
+		fundingTxID := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
+
+		result.ChannelPoint, err = getOutPoint(
+			fundingTxID.FundingTxidBytes,
+			channelPoint.OutputIndex,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL:
+		result.UpdateType = FullyResolvedChannelUpdate
+		channelPoint := rpcChannelEventUpdate.GetFullyResolvedChannel()
 		fundingTxID := channelPoint.FundingTxid.(*lnrpc.ChannelPoint_FundingTxidBytes)
 
 		result.ChannelPoint, err = getOutPoint(
@@ -2986,8 +3064,8 @@ func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
 	}
 
 	return &ChannelBalance{
-		Balance:        btcutil.Amount(resp.Balance),
-		PendingBalance: btcutil.Amount(resp.PendingOpenBalance),
+		Balance:        btcutil.Amount(resp.Balance),            // nolint:staticcheck
+		PendingBalance: btcutil.Amount(resp.PendingOpenBalance), // nolint:staticcheck
 	}, nil
 }
 
@@ -3141,7 +3219,7 @@ func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
 		}
 
 		result.NodeUpdates[i] = NodeUpdate{
-			Addresses:   nodeUpdate.Addresses,
+			Addresses:   nodeUpdate.Addresses, // nolint:staticcheck
 			IdentityKey: identityKey,
 			Features: make(
 				[]lnwire.FeatureBit, 0,
@@ -3461,7 +3539,6 @@ func unmarshallHop(rpcHop *lnrpc.Hop) (*Hop, error) {
 
 	return &Hop{
 		ChannelID:        rpcHop.ChanId,
-		Capacity:         btcutil.Amount(rpcHop.ChanCapacity),
 		Expiry:           rpcHop.Expiry,
 		AmtToForwardMsat: lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
 		FeeMsat:          lnwire.MilliSatoshi(rpcHop.FeeMsat),
@@ -3530,4 +3607,118 @@ func (s *lightningClient) QueryRoutes(ctx context.Context,
 		TotalFeesMsat: lnwire.MilliSatoshi(route.TotalFeesMsat),
 		TotalAmtMsat:  lnwire.MilliSatoshi(route.TotalAmtMsat),
 	}, nil
+}
+
+// CheckMacaroonPermissions allows a client to check the validity of a macaroon.
+func (s *lightningClient) CheckMacaroonPermissions(ctx context.Context,
+	macaroon []byte, permissions []MacaroonPermission, fullMethod string) (bool,
+	error) {
+
+	rpcPermissions := make([]*lnrpc.MacaroonPermission, len(permissions))
+	for idx, perm := range permissions {
+		rpcPermissions[idx] = &lnrpc.MacaroonPermission{
+			Entity: perm.Entity,
+			Action: perm.Action,
+		}
+	}
+
+	ctx = s.adminMac.WithMacaroonAuth(ctx)
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	res, err := s.client.CheckMacaroonPermissions(
+		rpcCtx, &lnrpc.CheckMacPermRequest{
+			Macaroon:    macaroon,
+			Permissions: rpcPermissions,
+			FullMethod:  fullMethod,
+		},
+	)
+	if err != nil {
+		return false, err
+	}
+
+	return res.Valid, nil
+}
+
+// InterceptFunction is a function type for intercepting RPC calls from a
+// middleware.
+type InterceptFunction func(context.Context,
+	*lnrpc.RPCMiddlewareRequest) (*lnrpc.RPCMiddlewareResponse, error)
+
+// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
+// gRPC middleware is software component external to lnd that aims to add
+// additional business logic to lnd by observing/intercepting/validating
+// incoming gRPC client requests and (if needed) replacing/overwriting outgoing
+// messages before they're sent to the client.
+func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
+	middlewareName, customCaveatName string, readOnly bool,
+	timeout time.Duration, intercept InterceptFunction) (chan error, error) {
+
+	interceptStream, err := s.client.RegisterRPCMiddleware(
+		s.adminMac.WithMacaroonAuth(ctx),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// We are expected to send an initial registration message immediately.
+	registerMsg := &lnrpc.RPCMiddlewareResponse{
+		MiddlewareMessage: &lnrpc.RPCMiddlewareResponse_Register{
+			Register: &lnrpc.MiddlewareRegistration{
+				MiddlewareName:           middlewareName,
+				CustomMacaroonCaveatName: customCaveatName,
+				ReadOnlyMode:             readOnly,
+			},
+		},
+	}
+	if err := interceptStream.SendMsg(registerMsg); err != nil {
+		return nil, err
+	}
+
+	errChan := make(chan error, 1)
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			select {
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+
+			default:
+			}
+
+			request, err := interceptStream.Recv()
+			if err != nil {
+				errChan <- fmt.Errorf("RPC middleware receive "+
+					"failed: %v", err)
+
+				return
+			}
+
+			// Create a child context for our accept function which
+			// will time out after the timeout period provided.
+			ctxt, cancel := context.WithTimeout(ctx, timeout)
+
+			resp, err := intercept(ctxt, request)
+			cancel()
+			if err != nil {
+				errChan <- fmt.Errorf("intercept function "+
+					"failed: %v", err)
+
+				return
+			}
+
+			if err := interceptStream.Send(resp); err != nil {
+				errChan <- fmt.Errorf("RPC middleware send "+
+					"failed: %v", err)
+
+				return
+			}
+		}
+	}()
+
+	return errChan, nil
 }
