@@ -175,6 +175,8 @@ func (m *walletKitClient) ListUnspent(ctx context.Context, minConfs,
 			addrType = lnwallet.WitnessPubKey
 		case lnrpc.AddressType_NESTED_PUBKEY_HASH:
 			addrType = lnwallet.NestedWitnessPubKey
+		case lnrpc.AddressType_TAPROOT_PUBKEY:
+			addrType = lnwallet.TaprootPubkey
 		default:
 			return nil, fmt.Errorf("invalid utxo address type %v",
 				utxo.AddressType)
