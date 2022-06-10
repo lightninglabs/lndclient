@@ -50,7 +50,9 @@ type WalletKitClient interface {
 	DeriveKey(ctx context.Context, locator *keychain.KeyLocator) (
 		*keychain.KeyDescriptor, error)
 
-	NextAddr(ctx context.Context) (btcutil.Address, error)
+	NextAddr(ctx context.Context, accountName string,
+		addressType walletrpc.AddressType,
+		change bool) (btcutil.Address, error)
 
 	PublishTransaction(ctx context.Context, tx *wire.MsgTx,
 		label string) error
@@ -308,14 +310,19 @@ func (m *walletKitClient) DeriveKey(ctx context.Context, in *keychain.KeyLocator
 	}, nil
 }
 
-func (m *walletKitClient) NextAddr(ctx context.Context) (
-	btcutil.Address, error) {
+func (m *walletKitClient) NextAddr(ctx context.Context, accountName string,
+	addressType walletrpc.AddressType, change bool) (btcutil.Address,
+	error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
 	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
-	resp, err := m.client.NextAddr(rpcCtx, &walletrpc.AddrRequest{})
+	resp, err := m.client.NextAddr(rpcCtx, &walletrpc.AddrRequest{
+		Account: accountName,
+		Type:    addressType,
+		Change:  change,
+	})
 	if err != nil {
 		return nil, err
 	}
