@@ -130,6 +130,10 @@ type WalletKitClient interface {
 	// this method.
 	FinalizePsbt(ctx context.Context, packet *psbt.Packet,
 		account string) (*psbt.Packet, *wire.MsgTx, error)
+
+	// ImportPublicKey imports a public key as watch-only into the wallet.
+	ImportPublicKey(ctx context.Context, pubkey *btcec.PublicKey,
+		addrType lnwallet.AddressType) error
 }
 
 type walletKitClient struct {
@@ -597,4 +601,33 @@ func (m *walletKitClient) FinalizePsbt(ctx context.Context, packet *psbt.Packet,
 	}
 
 	return finalizedPacket, finalTx, nil
+}
+
+// ImportPublicKey imports a public key as watch-only into the wallet.
+func (m *walletKitClient) ImportPublicKey(ctx context.Context,
+	pubKey *btcec.PublicKey, addrType lnwallet.AddressType) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	var rpcAddrType walletrpc.AddressType
+	switch addrType {
+	case lnwallet.WitnessPubKey:
+		rpcAddrType = walletrpc.AddressType_WITNESS_PUBKEY_HASH
+	case lnwallet.NestedWitnessPubKey:
+		rpcAddrType = walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH
+	case lnwallet.TaprootPubkey:
+		rpcAddrType = walletrpc.AddressType_TAPROOT_PUBKEY
+	default:
+		return fmt.Errorf("invalid utxo address type %v", addrType)
+	}
+
+	_, err := m.client.ImportPublicKey(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx),
+		&walletrpc.ImportPublicKeyRequest{
+			PublicKey:   pubKey.SerializeCompressed(),
+			AddressType: rpcAddrType,
+		},
+	)
+	return err
 }
