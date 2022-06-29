@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -996,6 +997,30 @@ func (r *routerClient) ResetMissionControl(ctx context.Context) error {
 	_, err := r.client.ResetMissionControl(
 		r.routerKitMac.WithMacaroonAuth(rpcCtx),
 		&routerrpc.ResetMissionControlRequest{},
+	)
+	return err
+}
+
+// UpdateChanStatus attempts to manually set the state of a channel (enabled,
+// disabled, or auto). A manual "disable" request will cause the channel to
+// stay disabled until a subsequent manual request of either "enable" or "auto".
+func (r *routerClient) UpdateChanStatus(ctx context.Context,
+	channel *wire.OutPoint, action routerrpc.ChanStatusAction) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.UpdateChanStatus(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.UpdateChanStatusRequest{
+			ChanPoint: &lnrpc.ChannelPoint{
+				FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+					FundingTxidBytes: channel.Hash[:],
+				},
+				OutputIndex: channel.Index,
+			},
+			Action: action,
+		},
 	)
 	return err
 }
