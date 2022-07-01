@@ -724,6 +724,14 @@
                 }
             ]
         },
+        "/routerrpc.Router/UpdateChanStatus": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/signrpc.Signer/ComputeInputScript": {
             "permissions": [
                 {

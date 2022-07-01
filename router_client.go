@@ -67,6 +67,11 @@ type RouterClient interface {
 
 	// ResetMissionControl resets the Mission Control state of lnd.
 	ResetMissionControl(ctx context.Context) error
+
+	// UpdateChanStatus attempts to manually set the state of a channel
+	// (enabled, disabled, or auto).
+	UpdateChanStatus(ctx context.Context,
+		channel *wire.OutPoint, action routerrpc.ChanStatusAction) error
 }
 
 // PaymentStatus describe the state of a payment.
