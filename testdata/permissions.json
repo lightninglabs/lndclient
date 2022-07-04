@@ -540,6 +540,14 @@
                 }
             ]
         },
+	"/lnrpc.Lightning/SubscribeCustomMessages": {
+            "permissions": [
+                {
+                    "entity": "peers",
+                    "action": "read"
+                }
+            ]
+        },
         "/lnrpc.Lightning/SubscribeChannelEvents": {
             "permissions": [
                 {
