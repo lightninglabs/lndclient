@@ -64,6 +64,14 @@
                 }
             ]
         },
+        "/devrpc.Dev/ImportGraph": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/invoicesrpc.Invoices/AddHoldInvoice": {
             "permissions": [
                 {
@@ -73,6 +81,14 @@
             ]
         },
         "/invoicesrpc.Invoices/CancelInvoice": {
+            "permissions": [
+                {
+                    "entity": "invoices",
+                    "action": "write"
+                }
+            ]
+        },
+        "/invoicesrpc.Invoices/LookupInvoiceV2": {
             "permissions": [
                 {
                     "entity": "invoices",
@@ -117,6 +133,18 @@
                 {
                     "entity": "macaroon",
                     "action": "generate"
+                }
+            ]
+        },
+        "/lnrpc.Lightning/BatchOpenChannel": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "write"
+                },
+                {
+                    "entity": "offchain",
+                    "action": "write"
                 }
             ]
         },
@@ -204,6 +232,14 @@
             "permissions": [
                 {
                     "entity": "macaroon",
+                    "action": "write"
+                }
+            ]
+        },
+        "/lnrpc.Lightning/DeletePayment": {
+            "permissions": [
+                {
+                    "entity": "offchain",
                     "action": "write"
                 }
             ]
@@ -468,6 +504,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/SendCustomMessage": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/lnrpc.Lightning/SendMany": {
             "permissions": [
                 {
@@ -564,6 +608,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/SubscribeCustomMessages": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "read"
+                }
+            ]
+        },
         "/lnrpc.Lightning/SubscribeInvoices": {
             "permissions": [
                 {
@@ -620,6 +672,62 @@
                 }
             ]
         },
+        "/neutrinorpc.NeutrinoKit/AddPeer": {
+            "permissions": [
+                {
+                    "entity": "peers",
+                    "action": "write"
+                }
+            ]
+        },
+        "/neutrinorpc.NeutrinoKit/DisconnectPeer": {
+            "permissions": [
+                {
+                    "entity": "peers",
+                    "action": "write"
+                }
+            ]
+        },
+        "/neutrinorpc.NeutrinoKit/GetBlock": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "read"
+                }
+            ]
+        },
+        "/neutrinorpc.NeutrinoKit/GetBlockHeader": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "read"
+                }
+            ]
+        },
+        "/neutrinorpc.NeutrinoKit/GetCFilter": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "read"
+                }
+            ]
+        },
+        "/neutrinorpc.NeutrinoKit/IsBanned": {
+            "permissions": [
+                {
+                    "entity": "info",
+                    "action": "read"
+                }
+            ]
+        },
+        "/neutrinorpc.NeutrinoKit/Status": {
+            "permissions": [
+                {
+                    "entity": "info",
+                    "action": "read"
+                }
+            ]
+        },
         "/routerrpc.Router/BuildRoute": {
             "permissions": [
                 {
@@ -629,6 +737,14 @@
             ]
         },
         "/routerrpc.Router/EstimateRouteFee": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "read"
+                }
+            ]
+        },
+        "/routerrpc.Router/GetMissionControlConfig": {
             "permissions": [
                 {
                     "entity": "offchain",
@@ -700,6 +816,14 @@
                 }
             ]
         },
+        "/routerrpc.Router/SetMissionControlConfig": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/routerrpc.Router/SubscribeHtlcEvents": {
             "permissions": [
                 {
@@ -724,15 +848,15 @@
                 }
             ]
         },
-	"/routerrpc.Router/QueryMissionControl": {
+        "/routerrpc.Router/UpdateChanStatus": {
             "permissions": [
                 {
                     "entity": "offchain",
-                    "action": "read"
+                    "action": "write"
                 }
             ]
         },
-	"/routerrpc.Router/XImportMissionControl": {
+        "/routerrpc.Router/XImportMissionControl": {
             "permissions": [
                 {
                     "entity": "offchain",
@@ -764,7 +888,7 @@
                 }
             ]
         },
-        "/signrpc.Signer/SignMessage": {
+        "/signrpc.Signer/MuSig2Cleanup": {
             "permissions": [
                 {
                     "entity": "signer",
@@ -772,27 +896,19 @@
                 }
             ]
         },
-        "/signrpc.Signer/SignOutputRaw": {
+        "/signrpc.Signer/MuSig2CombineKeys": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "read"
+                }
+            ]
+        },
+        "/signrpc.Signer/MuSig2CombineSig": {
             "permissions": [
                 {
                     "entity": "signer",
                     "action": "generate"
-                }
-            ]
-        },
-        "/signrpc.Signer/VerifyMessage": {
-            "permissions": [
-                {
-                    "entity": "signer",
-                    "action": "read"
-                }
-            ]
-        },
-        "/signrpc.Signer/VerifyMessage": {
-            "permissions": [
-                {
-                    "entity": "signer",
-                    "action": "read"
                 }
             ]
         },
@@ -820,7 +936,7 @@
                 }
             ]
         },
-        "/signrpc.Signer/MuSig2CombineSig": {
+        "/signrpc.Signer/SignMessage": {
             "permissions": [
                 {
                     "entity": "signer",
@@ -828,11 +944,19 @@
                 }
             ]
         },
-        "/signrpc.Signer/MuSig2Cleanup": {
+        "/signrpc.Signer/SignOutputRaw": {
             "permissions": [
                 {
                     "entity": "signer",
                     "action": "generate"
+                }
+            ]
+        },
+        "/signrpc.Signer/VerifyMessage": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "read"
                 }
             ]
         },
@@ -892,7 +1016,15 @@
                 }
             ]
         },
-        "/walletrpc.WalletKit/SignPsbt": {
+        "/walletrpc.WalletKit/ImportAccount": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "write"
+                }
+            ]
+        },
+        "/walletrpc.WalletKit/ImportPublicKey": {
             "permissions": [
                 {
                     "entity": "onchain",
@@ -913,6 +1045,22 @@
                 {
                     "entity": "onchain",
                     "action": "write"
+                }
+            ]
+        },
+        "/walletrpc.WalletKit/ListAccounts": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "read"
+                }
+            ]
+        },
+        "/walletrpc.WalletKit/ListLeases": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "read"
                 }
             ]
         },
@@ -972,19 +1120,11 @@
                 }
             ]
         },
-		"/walletrpc.WalletKit/ListAccounts": {
-			"permissions":[
-				{
-					"entity": "onchain",
-					"action": "read"
-				}
-			]
-		},
-        "/watchtowerrpc.Watchtower/GetInfo": {
+        "/walletrpc.WalletKit/SignPsbt": {
             "permissions": [
                 {
-                    "entity": "info",
-                    "action": "read"
+                    "entity": "onchain",
+                    "action": "write"
                 }
             ]
         },
