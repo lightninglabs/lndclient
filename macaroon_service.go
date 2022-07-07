@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/rpcperms"
@@ -341,4 +342,28 @@ func (ms *MacaroonService) Interceptors() (grpc.UnaryServerInterceptor,
 	unaryInterceptor := interceptor.MacaroonUnaryServerInterceptor()
 	streamInterceptor := interceptor.MacaroonStreamServerInterceptor()
 	return unaryInterceptor, streamInterceptor, nil
+}
+
+// NewBoltMacaroonStore returns a new bakery.RootKeyStore, backed by a bolt DB
+// instance at the specified location.
+func NewBoltMacaroonStore(dbPath, dbFileName string,
+	dbTimeout time.Duration) (bakery.RootKeyStore, error) {
+
+	db, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:     dbPath,
+		DBFileName: dbFileName,
+		DBTimeout:  dbTimeout,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to open macaroon "+
+			"db: %w", err)
+	}
+
+	rks, err := macaroons.NewRootKeyStorage(db)
+	if err != nil {
+		return nil, fmt.Errorf("unable to open init macaroon "+
+			"db: %w", err)
+	}
+
+	return rks, nil
 }
