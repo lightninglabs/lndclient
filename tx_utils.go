@@ -35,6 +35,17 @@ func decodeTx(rawTx []byte) (*wire.MsgTx, error) {
 	return &tx, nil
 }
 
+// decodeBlock decodes a raw block into a struct.
+func decodeBlock(rawBlock []byte) (*wire.MsgBlock, error) {
+	var block wire.MsgBlock
+	err := block.Deserialize(bytes.NewReader(rawBlock))
+	if err != nil {
+		return nil, err
+	}
+
+	return &block, nil
+}
+
 // NewOutpointFromStr creates an outpoint from a string with the format
 // txid:index.
 func NewOutpointFromStr(outpoint string) (*wire.OutPoint, error) {
