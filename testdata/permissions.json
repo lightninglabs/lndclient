@@ -476,6 +476,14 @@
                 }
             ]
         },
+	"/lnrpc.Lightning/SendCustomMessage": {
+            "permissions": [
+                {
+                    "entity": "peers",
+                    "action": "write"
+                }
+            ]
+        },
         "/lnrpc.Lightning/SendPayment": {
             "permissions": [
                 {
@@ -528,6 +536,14 @@
             "permissions": [
                 {
                     "entity": "offchain",
+                    "action": "read"
+                }
+            ]
+        },
+	"/lnrpc.Lightning/SubscribeCustomMessages": {
+            "permissions": [
+                {
+                    "entity": "peers",
                     "action": "read"
                 }
             ]

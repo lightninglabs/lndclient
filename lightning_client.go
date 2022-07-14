@@ -198,6 +198,14 @@ type LightningClient interface {
 	RegisterRPCMiddleware(ctx context.Context, middlewareName,
 		customCaveatName string, readOnly bool, timeout time.Duration,
 		intercept InterceptFunction) (chan error, error)
+
+	// SendCustomMessage sends a custom message to a peer.
+	SendCustomMessage(ctx context.Context, msg CustomMessage) error
+
+	// SubscribeCustomMessages creates a subscription to custom messages
+	// received from our peers.
+	SubscribeCustomMessages(ctx context.Context) (<-chan CustomMessage,
+		<-chan error, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -1074,6 +1082,18 @@ type QueryRoutesResponse struct {
 
 	// TotalAmtMsat is the total amount in millisatoshis.
 	TotalAmtMsat lnwire.MilliSatoshi
+}
+
+// CustomMessage describes custom messages exchanged with peers.
+type CustomMessage struct {
+	// Peer is the peer that the message was exchanged with.
+	Peer route.Vertex
+
+	// MsgType is the protocol message type number for the custom message.
+	MsgType uint32
+
+	// Data is the data exchanged.
+	Data []byte
 }
 
 var (
@@ -3722,4 +3742,85 @@ func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
 	}()
 
 	return errChan, nil
+}
+
+// SendCustomMessage sends a custom message to one of our existing peers. Note
+// that lnd must already be connected to a peer to send it messages.
+func (s *lightningClient) SendCustomMessage(ctx context.Context,
+	msg CustomMessage) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+	rpcReq := &lnrpc.SendCustomMessageRequest{
+		Peer: msg.Peer[:],
+		Type: msg.MsgType,
+		Data: msg.Data,
+	}
+
+	_, err := s.client.SendCustomMessage(rpcCtx, rpcReq)
+	return err
+}
+
+// SubscribeCustomMessages subscribes to a stream of custom messages, optionally
+// filtering by peer and message type. The channels returned will be closed
+// when the subscription exits.
+func (s *lightningClient) SubscribeCustomMessages(ctx context.Context) (
+	<-chan CustomMessage, <-chan error, error) {
+
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+	rpcReq := &lnrpc.SubscribeCustomMessagesRequest{}
+
+	client, err := s.client.SubscribeCustomMessages(rpcCtx, rpcReq)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var (
+		// Buffer error channel by 1 so that consumer reading from this
+		// channel does not block our exit.
+		errChan = make(chan error, 1)
+		msgChan = make(chan CustomMessage)
+	)
+
+	s.wg.Add(1)
+	go func() {
+		defer func() {
+			// Close channels on exit so that callers know the
+			// subscription has finished.
+			close(errChan)
+			close(msgChan)
+
+			s.wg.Done()
+		}()
+
+		for {
+			msg, err := client.Recv()
+			if err != nil {
+				errChan <- fmt.Errorf("receive failed: %w", err)
+				return
+			}
+
+			peer, err := route.NewVertexFromBytes(msg.Peer)
+			if err != nil {
+				errChan <- fmt.Errorf("invalid peer: %w", err)
+				return
+			}
+
+			customMsg := CustomMessage{
+				Peer:    peer,
+				Data:    msg.Data,
+				MsgType: msg.Type,
+			}
+
+			select {
+			case msgChan <- customMsg:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return msgChan, errChan, nil
 }
