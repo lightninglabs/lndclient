@@ -13,13 +13,39 @@ import (
 	"google.golang.org/grpc"
 )
 
+// notifierOptions is a set of functional options that allow callers to further
+// modify the type of chain even notifications they receive.
+type notifierOptions struct {
+	// includeBlock if true, then the dispatched confirmation notification
+	// will include the block that mined the transaction.
+	includeBlock bool
+}
+
+// defaultNotifierOptions returns the set of default options for the notifier.
+func defaultNotifierOptions() *notifierOptions {
+	return &notifierOptions{}
+}
+
+// NotifierOption is a functional option that allows a caller to modify the
+// events received from the notifier.
+type NotifierOption func(*notifierOptions)
+
+// WithIncludeBlock is an optional argument that allows the calelr to specify
+// that the block that mined a transaction should be included in the response.
+func WithIncludeBlock() NotifierOption {
+	return func(o *notifierOptions) {
+		o.includeBlock = true
+	}
+}
+
 // ChainNotifierClient exposes base lightning functionality.
 type ChainNotifierClient interface {
 	RegisterBlockEpochNtfn(ctx context.Context) (
 		chan int32, chan error, error)
 
 	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,
-		pkScript []byte, numConfs, heightHint int32) (
+		pkScript []byte, numConfs, heightHint int32,
+		opts ...NotifierOption) (
 		chan *chainntnfs.TxConfirmation, chan error, error)
 
 	RegisterSpendNtfn(ctx context.Context,
@@ -126,8 +152,14 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 }
 
 func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
-	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint int32) (
+	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint int32,
+	optFuncs ...NotifierOption) (
 	chan *chainntnfs.TxConfirmation, chan error, error) {
+
+	opts := defaultNotifierOptions()
+	for _, optFunc := range optFuncs {
+		optFunc(opts)
+	}
 
 	var txidSlice []byte
 	if txid != nil {
@@ -136,10 +168,11 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 	confStream, err := s.client.RegisterConfirmationsNtfn(
 		s.chainMac.WithMacaroonAuth(ctx),
 		&chainrpc.ConfRequest{
-			Script:     pkScript,
-			NumConfs:   uint32(numConfs),
-			HeightHint: uint32(heightHint),
-			Txid:       txidSlice,
+			Script:       pkScript,
+			NumConfs:     uint32(numConfs),
+			HeightHint:   uint32(heightHint),
+			Txid:         txidSlice,
+			IncludeBlock: opts.includeBlock,
 		},
 	)
 	if err != nil {
@@ -170,6 +203,16 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 					errChan <- err
 					return
 				}
+
+				var block *wire.MsgBlock
+				if opts.includeBlock {
+					block, err = decodeBlock(c.Conf.RawBlock)
+					if err != nil {
+						errChan <- err
+						return
+					}
+				}
+
 				blockHash, err := chainhash.NewHash(
 					c.Conf.BlockHash,
 				)
@@ -177,11 +220,13 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 					errChan <- err
 					return
 				}
+
 				confChan <- &chainntnfs.TxConfirmation{
 					BlockHeight: c.Conf.BlockHeight,
 					BlockHash:   blockHash,
 					Tx:          tx,
 					TxIndex:     c.Conf.TxIndex,
+					Block:       block,
 				}
 				return
 
