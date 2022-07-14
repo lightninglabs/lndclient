@@ -8,7 +8,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.0
-	github.com/lightningnetwork/lnd v0.15.4-beta
+	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20221104092723-22fec76339a7
 	github.com/lightningnetwork/lnd/kvdb v1.3.1
 	github.com/stretchr/testify v1.7.1
 	go.etcd.io/bbolt v1.3.6
@@ -86,7 +86,7 @@ require (
 	github.com/lightningnetwork/lnd/queue v1.1.0 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.0 // indirect
 	github.com/lightningnetwork/lnd/tlv v1.0.3 // indirect
-	github.com/lightningnetwork/lnd/tor v1.0.1 // indirect
+	github.com/lightningnetwork/lnd/tor v1.1.0 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/mholt/archiver/v3 v3.5.0 // indirect
