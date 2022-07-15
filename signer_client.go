@@ -36,13 +36,14 @@ type SignerClient interface {
 	// SignMessage signs a message with the key specified in the key
 	// locator. The returned signature is fixed-size LN wire format encoded.
 	SignMessage(ctx context.Context, msg []byte,
-		locator keychain.KeyLocator) ([]byte, error)
+		locator keychain.KeyLocator, opts ...SignMessageOption) ([]byte,
+		error)
 
 	// VerifyMessage verifies a signature over a message using the public
 	// key provided. The signature must be fixed-size LN wire format
 	// encoded.
-	VerifyMessage(ctx context.Context, msg, sig []byte, pubkey [33]byte) (
-		bool, error)
+	VerifyMessage(ctx context.Context, msg, sig []byte, pubkey [33]byte,
+		opts ...VerifyMessageOption) (bool, error)
 
 	// DeriveSharedKey returns a shared secret key by performing
 	// Diffie-Hellman key derivation between the ephemeral public key and
@@ -327,10 +328,31 @@ func (s *signerClient) ComputeInputScript(ctx context.Context, tx *wire.MsgTx,
 	return inputScripts, nil
 }
 
+// SignMessageOption is a function type that allows the customization of a
+// SignMessage RPC request.
+type SignMessageOption func(req *signrpc.SignMessageReq)
+
+// SignCompact sets the flag for returning a compact signature in the message
+// request.
+func SignCompact() SignMessageOption {
+	return func(req *signrpc.SignMessageReq) {
+		req.CompactSig = true
+	}
+}
+
+// SignSchnorr sets the flag for returning a Schnorr signature in the message
+// request.
+func SignSchnorr(taprootTweak []byte) SignMessageOption {
+	return func(req *signrpc.SignMessageReq) {
+		req.SchnorrSig = true
+		req.SchnorrSigTapTweak = taprootTweak
+	}
+}
+
 // SignMessage signs a message with the key specified in the key locator. The
 // returned signature is fixed-size LN wire format encoded.
 func (s *signerClient) SignMessage(ctx context.Context, msg []byte,
-	locator keychain.KeyLocator) ([]byte, error) {
+	locator keychain.KeyLocator, opts ...SignMessageOption) ([]byte, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -343,6 +365,10 @@ func (s *signerClient) SignMessage(ctx context.Context, msg []byte,
 		},
 	}
 
+	for _, opt := range opts {
+		opt(rpcIn)
+	}
+
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
 	resp, err := s.client.SignMessage(rpcCtx, rpcIn)
 	if err != nil {
@@ -352,10 +378,22 @@ func (s *signerClient) SignMessage(ctx context.Context, msg []byte,
 	return resp.Signature, nil
 }
 
+// VerifyMessageOption is a function type that allows the customization of a
+// VerifyMessage RPC request.
+type VerifyMessageOption func(req *signrpc.VerifyMessageReq)
+
+// VerifySchnorr sets the flag for checking a Schnorr signature in the message
+// request.
+func VerifySchnorr() VerifyMessageOption {
+	return func(req *signrpc.VerifyMessageReq) {
+		req.IsSchnorrSig = true
+	}
+}
+
 // VerifyMessage verifies a signature over a message using the public key
 // provided. The signature must be fixed-size LN wire format encoded.
 func (s *signerClient) VerifyMessage(ctx context.Context, msg, sig []byte,
-	pubkey [33]byte) (bool, error) {
+	pubkey [33]byte, opts ...VerifyMessageOption) (bool, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -364,6 +402,10 @@ func (s *signerClient) VerifyMessage(ctx context.Context, msg, sig []byte,
 		Msg:       msg,
 		Signature: sig,
 		Pubkey:    pubkey[:],
+	}
+
+	for _, opt := range opts {
+		opt(rpcIn)
 	}
 
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
