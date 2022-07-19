@@ -3693,7 +3693,41 @@ func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
 		return nil, err
 	}
 
-	errChan := make(chan error, 1)
+	// Wait for the registration complete message.
+	var (
+		registerChan = make(chan bool, 1)
+		errChan      = make(chan error, 1)
+	)
+	ctxc, cancel := context.WithTimeout(interceptStream.Context(), timeout)
+	defer cancel()
+
+	// Read the first message in a goroutine because the Recv method blocks
+	// until the message arrives.
+	go func() {
+		msg, err := interceptStream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		registerChan <- msg.GetRegComplete()
+	}()
+
+	select {
+	case <-ctxc.Done():
+		return nil, ctx.Err()
+
+	case err := <-errChan:
+		return nil, err
+
+	case registered := <-registerChan:
+		if !registered {
+			return nil, fmt.Errorf("expected a RegComplete " +
+				"message but got none. Make sure lnd is " +
+				"upgraded to a version supporting the new " +
+				"RegComplete message")
+		}
+	}
 
 	s.wg.Add(1)
 	go func() {
