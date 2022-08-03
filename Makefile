@@ -1,4 +1,4 @@
-PKG := github.com/lightninglabs/lndclient
+PKG := github.com/thomasbarrett/lndclient
 
 LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
 

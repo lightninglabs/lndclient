@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/lightninglabs/lndclient"
 	"github.com/stretchr/testify/require"
+	"github.com/thomasbarrett/lndclient"
 )
 
 var (
