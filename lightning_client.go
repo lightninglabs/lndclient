@@ -300,6 +300,10 @@ type ChannelInfo struct {
 	// online over its lifetime.
 	Uptime time.Duration
 
+	// ChanStatusFlags is a set of flags showing the current state of the
+	// channel.
+	ChanStatusFlags string
+
 	// TotalSent is the total amount sent over this channel for our own
 	// payments.
 	TotalSent btcutil.Amount
@@ -358,6 +362,7 @@ func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 		UnsettledBalance: btcutil.Amount(channel.UnsettledBalance),
 		Initiator:        channel.Initiator,
 		Private:          channel.Private,
+		ChanStatusFlags:  channel.ChanStatusFlags,
 		NumPendingHtlcs:  len(channel.PendingHtlcs),
 		TotalSent:        btcutil.Amount(channel.TotalSatoshisSent),
 		TotalReceived:    btcutil.Amount(channel.TotalSatoshisReceived),
