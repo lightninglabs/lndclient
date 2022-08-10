@@ -30,7 +30,7 @@ func defaultNotifierOptions() *notifierOptions {
 // events received from the notifier.
 type NotifierOption func(*notifierOptions)
 
-// WithIncludeBlock is an optional argument that allows the calelr to specify
+// WithIncludeBlock is an optional argument that allows the caller to specify
 // that the block that mined a transaction should be included in the response.
 func WithIncludeBlock() NotifierOption {
 	return func(o *notifierOptions) {
