@@ -44,12 +44,32 @@ type LeaseDescriptor struct {
 	Expiration time.Time
 }
 
+// ListUnspentOption is a functional type for an option that modifies a
+// ListUnspentRequest.
+type ListUnspentOption func(r *walletrpc.ListUnspentRequest)
+
+// WithUnspentAccount is an option for setting the account on a
+// ListUnspentRequest.
+func WithUnspentAccount(account string) ListUnspentOption {
+	return func(r *walletrpc.ListUnspentRequest) {
+		r.Account = account
+	}
+}
+
+// WithUnspentUnconfirmedOnly is an option for setting the UnconfirmedOnly flag
+// on a ListUnspentRequest.
+func WithUnspentUnconfirmedOnly() ListUnspentOption {
+	return func(r *walletrpc.ListUnspentRequest) {
+		r.UnconfirmedOnly = true
+	}
+}
+
 // WalletKitClient exposes wallet functionality.
 type WalletKitClient interface {
 	// ListUnspent returns a list of all utxos spendable by the wallet with
 	// a number of confirmations between the specified minimum and maximum.
-	ListUnspent(ctx context.Context, minConfs, maxConfs int32) (
-		[]*lnwallet.Utxo, error)
+	ListUnspent(ctx context.Context, minConfs, maxConfs int32,
+		opts ...ListUnspentOption) ([]*lnwallet.Utxo, error)
 
 	// LeaseOutput locks an output to the given ID for the lease time
 	// provided, preventing it from being available for any future coin
@@ -209,16 +229,22 @@ func newWalletKitClient(conn grpc.ClientConnInterface,
 // ListUnspent returns a list of all utxos spendable by the wallet with a number
 // of confirmations between the specified minimum and maximum.
 func (m *walletKitClient) ListUnspent(ctx context.Context, minConfs,
-	maxConfs int32) ([]*lnwallet.Utxo, error) {
+	maxConfs int32, opts ...ListUnspentOption) ([]*lnwallet.Utxo, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
-	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
-	resp, err := m.client.ListUnspent(rpcCtx, &walletrpc.ListUnspentRequest{
+	rpcReq := &walletrpc.ListUnspentRequest{
 		MinConfs: minConfs,
 		MaxConfs: maxConfs,
-	})
+	}
+
+	for _, opt := range opts {
+		opt(rpcReq)
+	}
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+	resp, err := m.client.ListUnspent(rpcCtx, rpcReq)
 	if err != nil {
 		return nil, err
 	}
