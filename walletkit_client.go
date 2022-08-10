@@ -168,7 +168,7 @@ type walletKitClient struct {
 	client       walletrpc.WalletKitClient
 	walletKitMac serializedMacaroon
 	timeout      time.Duration
-	chainParams  *chaincfg.Params
+	params       *chaincfg.Params
 }
 
 // A compile-time constraint to ensure walletKitclient satisfies the
@@ -183,7 +183,7 @@ func newWalletKitClient(conn grpc.ClientConnInterface,
 		client:       walletrpc.NewWalletKitClient(conn),
 		walletKitMac: walletKitMac,
 		timeout:      timeout,
-		chainParams:  chainParams,
+		params:       chainParams,
 	}
 }
 
@@ -640,9 +640,7 @@ func (m *walletKitClient) ListSweepsVerbose(ctx context.Context) (
 
 	var result []lnwallet.TransactionDetail
 	for _, txDetail := range rpcDetails.Transactions {
-		tx, err := UnmarshalTransactionDetail(
-			txDetail, m.chainParams,
-		)
+		tx, err := UnmarshalTransactionDetail(txDetail, m.params)
 		if err != nil {
 			return nil, err
 		}
