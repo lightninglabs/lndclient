@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -140,6 +141,7 @@ type walletKitClient struct {
 	client       walletrpc.WalletKitClient
 	walletKitMac serializedMacaroon
 	timeout      time.Duration
+	params       *chaincfg.Params
 }
 
 // A compile-time constraint to ensure walletKitclient satisfies the
@@ -147,12 +149,14 @@ type walletKitClient struct {
 var _ WalletKitClient = (*walletKitClient)(nil)
 
 func newWalletKitClient(conn grpc.ClientConnInterface,
-	walletKitMac serializedMacaroon, timeout time.Duration) *walletKitClient {
+	walletKitMac serializedMacaroon, timeout time.Duration,
+	chainParams *chaincfg.Params) *walletKitClient {
 
 	return &walletKitClient{
 		client:       walletrpc.NewWalletKitClient(conn),
 		walletKitMac: walletKitMac,
 		timeout:      timeout,
+		params:       chainParams,
 	}
 }
 
