@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -139,6 +141,19 @@ type WalletKitClient interface {
 	// be supported later on.
 	ImportPublicKey(ctx context.Context, pubkey *btcec.PublicKey,
 		addrType lnwallet.AddressType) error
+
+	// ImportTaprootScript imports a user-provided taproot script into the
+	// wallet. The imported script will act as a pay-to-taproot address.
+	//
+	// NOTE: Events (deposits/spends) for a key will only be detected by lnd
+	// if they happen after the import. Rescans to detect past events will
+	// be supported later on.
+	//
+	// NOTE: Taproot keys imported through this RPC currently _cannot_ be
+	// used for funding PSBTs. Only tracking the balance and UTXOs is
+	// currently supported.
+	ImportTaprootScript(ctx context.Context,
+		tapscript *waddrmgr.Tapscript) (btcutil.Address, error)
 }
 
 type walletKitClient struct {
@@ -642,4 +657,101 @@ func (m *walletKitClient) ImportPublicKey(ctx context.Context,
 		},
 	)
 	return err
+}
+
+// ImportTaprootScript imports a user-provided taproot script into the wallet.
+// The imported script will act as a pay-to-taproot address.
+//
+// NOTE: Events (deposits/spends) for a key will only be detected by lnd if they
+// happen after the import. Rescans to detect past events will be supported
+// later on.
+//
+// NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
+// funding PSBTs. Only tracking the balance and UTXOs is currently supported.
+func (m *walletKitClient) ImportTaprootScript(ctx context.Context,
+	tapscript *waddrmgr.Tapscript) (btcutil.Address, error) {
+
+	if tapscript == nil {
+		return nil, fmt.Errorf("invalid tapscript")
+	}
+
+	var (
+		rpcReq    = &walletrpc.ImportTapscriptRequest{}
+		ctrlBlock = tapscript.ControlBlock
+	)
+
+	switch tapscript.Type {
+	case waddrmgr.TapscriptTypeFullTree:
+		rpcReq.InternalPublicKey = schnorr.SerializePubKey(
+			ctrlBlock.InternalKey,
+		)
+
+		rpcLeaves := make([]*walletrpc.TapLeaf, len(tapscript.Leaves))
+		for idx, leaf := range tapscript.Leaves {
+			rpcLeaves[idx] = &walletrpc.TapLeaf{
+				LeafVersion: uint32(leaf.LeafVersion),
+				Script:      leaf.Script,
+			}
+		}
+		rpcReq.Script = &walletrpc.ImportTapscriptRequest_FullTree{
+			FullTree: &walletrpc.TapscriptFullTree{
+				AllLeaves: rpcLeaves,
+			},
+		}
+
+	case waddrmgr.TapscriptTypePartialReveal:
+		rpcReq.InternalPublicKey = schnorr.SerializePubKey(
+			ctrlBlock.InternalKey,
+		)
+		rpcReq.Script = &walletrpc.ImportTapscriptRequest_PartialReveal{
+			PartialReveal: &walletrpc.TapscriptPartialReveal{
+				RevealedLeaf: &walletrpc.TapLeaf{
+					LeafVersion: uint32(
+						ctrlBlock.LeafVersion,
+					),
+					Script: tapscript.RevealedScript,
+				},
+				FullInclusionProof: ctrlBlock.InclusionProof,
+			},
+		}
+
+	case waddrmgr.TaprootKeySpendRootHash:
+		rpcReq.InternalPublicKey = schnorr.SerializePubKey(
+			ctrlBlock.InternalKey,
+		)
+		rpcReq.Script = &walletrpc.ImportTapscriptRequest_RootHashOnly{
+			RootHashOnly: tapscript.RootHash,
+		}
+
+	case waddrmgr.TaprootFullKeyOnly:
+		rpcReq.InternalPublicKey = schnorr.SerializePubKey(
+			tapscript.FullOutputKey,
+		)
+		rpcReq.Script = &walletrpc.ImportTapscriptRequest_FullKeyOnly{
+			FullKeyOnly: true,
+		}
+
+	default:
+		return nil, fmt.Errorf("invalid tapscript type <%d>",
+			tapscript.Type)
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	importResp, err := m.client.ImportTapscript(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx), rpcReq,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error importing tapscript into lnd: %v",
+			err)
+	}
+
+	p2trAddr, err := btcutil.DecodeAddress(importResp.P2TrAddress, m.params)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing imported p2tr addr: %v",
+			err)
+	}
+
+	return p2trAddr, nil
 }
