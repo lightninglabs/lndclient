@@ -160,6 +160,10 @@ type WalletKitClient interface {
 		account string) (*psbt.Packet, *wire.MsgTx, error)
 
 	// ImportPublicKey imports a public key as watch-only into the wallet.
+	//
+	// NOTE: Events (deposits/spends) for a key will only be detected by lnd
+	// if they happen after the import. Rescans to detect past events will
+	// be supported later on.
 	ImportPublicKey(ctx context.Context, pubkey *btcec.PublicKey,
 		addrType lnwallet.AddressType) error
 }
@@ -830,6 +834,10 @@ func (m *walletKitClient) FinalizePsbt(ctx context.Context, packet *psbt.Packet,
 }
 
 // ImportPublicKey imports a public key as watch-only into the wallet.
+//
+// NOTE: Events (deposits/spends) for a key will only be detected by lnd if they
+// happen after the import. Rescans to detect past events will be supported
+// later on.
 func (m *walletKitClient) ImportPublicKey(ctx context.Context,
 	pubKey *btcec.PublicKey, addrType lnwallet.AddressType) error {
 
