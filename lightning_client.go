@@ -264,6 +264,12 @@ type LightningClient interface {
 	// received from our peers.
 	SubscribeCustomMessages(ctx context.Context) (<-chan CustomMessage,
 		<-chan error, error)
+
+	// SubscribeTransactions creates a uni-directional stream from the
+	// server to the client in which any newly discovered transactions
+	// relevant to the wallet are sent over.
+	SubscribeTransactions(ctx context.Context) (<-chan Transaction,
+		<-chan error, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -1801,28 +1807,36 @@ func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
 
 	txs := make([]Transaction, len(resp.Transactions))
 	for i, respTx := range resp.Transactions {
-		rawTx, err := hex.DecodeString(respTx.RawTxHex)
+		txs[i], err = unmarshallTransaction(respTx)
 		if err != nil {
 			return nil, err
-		}
-
-		var tx wire.MsgTx
-		if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
-			return nil, err
-		}
-
-		txs[i] = Transaction{
-			Tx:            &tx,
-			TxHash:        tx.TxHash().String(),
-			Timestamp:     time.Unix(respTx.TimeStamp, 0),
-			Amount:        btcutil.Amount(respTx.Amount),
-			Fee:           btcutil.Amount(respTx.TotalFees),
-			Confirmations: respTx.NumConfirmations,
-			Label:         respTx.Label,
 		}
 	}
 
 	return txs, nil
+}
+
+// unmarshallTransaction turns the RPC transaction into its native counterpart.
+func unmarshallTransaction(rpcTx *lnrpc.Transaction) (Transaction, error) {
+	rawTx, err := hex.DecodeString(rpcTx.RawTxHex)
+	if err != nil {
+		return Transaction{}, err
+	}
+
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
+		return Transaction{}, err
+	}
+
+	return Transaction{
+		Tx:            &tx,
+		TxHash:        tx.TxHash().String(),
+		Timestamp:     time.Unix(rpcTx.TimeStamp, 0),
+		Amount:        btcutil.Amount(rpcTx.Amount),
+		Fee:           btcutil.Amount(rpcTx.TotalFees),
+		Confirmations: rpcTx.NumConfirmations,
+		Label:         rpcTx.Label,
+	}, nil
 }
 
 // ListChannels retrieves all channels of the backing lnd node.
@@ -4135,4 +4149,64 @@ func (s *lightningClient) SubscribeCustomMessages(ctx context.Context) (
 	}()
 
 	return msgChan, errChan, nil
+}
+
+// SubscribeTransactions creates a uni-directional stream from the server to the
+// client in which any newly discovered transactions relevant to the wallet are
+// sent over.
+func (s *lightningClient) SubscribeTransactions(
+	ctx context.Context) (<-chan Transaction, <-chan error, error) {
+
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+
+	// Even though SubscribeTransactions uses the same request RPC type as
+	// ListTransactions, any parameters sent on the request are ignored...
+	// There's no point exposing them here either.
+	rpcReq := &lnrpc.GetTransactionsRequest{}
+
+	client, err := s.client.SubscribeTransactions(rpcCtx, rpcReq)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var (
+		// Buffer error channel by 1 so that consumer reading from this
+		// channel does not block our exit.
+		errChan = make(chan error, 1)
+		txChan  = make(chan Transaction)
+	)
+
+	s.wg.Add(1)
+	go func() {
+		defer func() {
+			// Close channels on exit so that callers know the
+			// subscription has finished.
+			close(errChan)
+			close(txChan)
+
+			s.wg.Done()
+		}()
+
+		for {
+			rpcTx, err := client.Recv()
+			if err != nil {
+				errChan <- fmt.Errorf("receive failed: %w", err)
+				return
+			}
+
+			tx, err := unmarshallTransaction(rpcTx)
+			if err != nil {
+				errChan <- fmt.Errorf("unmarshall failed: %w",
+					err)
+			}
+
+			select {
+			case txChan <- tx:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return txChan, errChan, nil
 }
