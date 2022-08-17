@@ -96,8 +96,8 @@ type LightningClient interface {
 	// limit the block range that we query over. These values can be left
 	// as zero to include all blocks. To include unconfirmed transactions
 	// in the query, endHeight must be set to -1.
-	ListTransactions(ctx context.Context, startHeight,
-		endHeight int32) ([]Transaction, error)
+	ListTransactions(ctx context.Context, startHeight, endHeight int32,
+		opts ...ListTransactionsOption) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
 	ListChannels(ctx context.Context, activeOnly, publicOnly bool) ([]ChannelInfo, error)
@@ -1754,9 +1754,22 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 	return invoice, nil
 }
 
+// ListTransactionsOption is a functional type for an option that modifies a
+// GetTransactionsRequest.
+type ListTransactionsOption func(r *lnrpc.GetTransactionsRequest)
+
+// WithTransactionsAccount is an option for setting the account on a
+// GetTransactionsRequest.
+func WithTransactionsAccount(account string) ListTransactionsOption {
+	return func(r *lnrpc.GetTransactionsRequest) {
+		r.Account = account
+	}
+}
+
 // ListTransactions returns all known transactions of the backing lnd node.
 func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
-	endHeight int32) ([]Transaction, error) {
+	endHeight int32, opts ...ListTransactionsOption) ([]Transaction,
+	error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -1765,6 +1778,10 @@ func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
 	rpcIn := &lnrpc.GetTransactionsRequest{
 		StartHeight: startHeight,
 		EndHeight:   endHeight,
+	}
+
+	for _, opt := range opts {
+		opt(rpcIn)
 	}
 
 	resp, err := s.client.GetTransactions(rpcCtx, rpcIn)
