@@ -698,6 +698,18 @@ type Transaction struct {
 
 	// Label is an optional label set for on chain transactions.
 	Label string
+
+	// The hash of the block this transaction was included in.
+	BlockHash string
+
+	// The height of the block this transaction was included in.
+	BlockHeight int32
+
+	// Outputs that received funds for this transaction.
+	OutputDetails []*lnrpc.OutputDetail
+
+	// PreviousOutpoints/Inputs of this transaction.
+	PreviousOutpoints []*lnrpc.PreviousOutPoint
 }
 
 // Peer contains information about a peer we are connected to.
@@ -1775,13 +1787,17 @@ func unmarshallTransaction(rpcTx *lnrpc.Transaction) (Transaction, error) {
 	}
 
 	return Transaction{
-		Tx:            &tx,
-		TxHash:        tx.TxHash().String(),
-		Timestamp:     time.Unix(rpcTx.TimeStamp, 0),
-		Amount:        btcutil.Amount(rpcTx.Amount),
-		Fee:           btcutil.Amount(rpcTx.TotalFees),
-		Confirmations: rpcTx.NumConfirmations,
-		Label:         rpcTx.Label,
+		Tx:                &tx,
+		TxHash:            tx.TxHash().String(),
+		Timestamp:         time.Unix(rpcTx.TimeStamp, 0),
+		Amount:            btcutil.Amount(rpcTx.Amount),
+		Fee:               btcutil.Amount(rpcTx.TotalFees),
+		Confirmations:     rpcTx.NumConfirmations,
+		Label:             rpcTx.Label,
+		BlockHash:         rpcTx.BlockHash,
+		BlockHeight:       rpcTx.BlockHeight,
+		OutputDetails:     rpcTx.OutputDetails,
+		PreviousOutpoints: rpcTx.PreviousOutpoints,
 	}, nil
 }
 
