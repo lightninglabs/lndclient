@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -24,9 +25,13 @@ func TestMacaroonServiceMigration(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDirPath)
 
-	rks, err := NewBoltMacaroonStore(
-		tempDirPath, "macaroons.db", defaultDBTimeout,
-	)
+	db, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:     tempDirPath,
+		DBFileName: "macaroons.db",
+		DBTimeout:  defaultDBTimeout,
+	})
+	require.NoError(t, err)
+	rks, err := macaroons.NewRootKeyStorage(db)
 	require.NoError(t, err)
 
 	// The initial config we will use has an empty DB password.
