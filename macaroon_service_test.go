@@ -12,7 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
 // TestMacaroonServiceMigration tests that a client that was using a macaroon
@@ -25,21 +24,14 @@ func TestMacaroonServiceMigration(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDirPath)
 
-	db, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
-		DBPath:     tempDirPath,
-		DBFileName: "macaroons.db",
-		DBTimeout:  defaultDBTimeout,
-	})
-	require.NoError(t, err)
-	rks, err := macaroons.NewRootKeyStorage(db)
-	require.NoError(t, err)
-
 	// The initial config we will use has an empty DB password.
 	cfg := &MacaroonServiceConfig{
+		DBPath:           tempDirPath,
+		DBFileName:       "macaroons.db",
+		DBTimeout:        defaultDBTimeout,
 		MacaroonLocation: "testLocation",
 		MacaroonPath:     tempDirPath,
 		DBPassword:       []byte{},
-		RootKeyStore:     rks,
 	}
 
 	// Create a new macaroon service with an empty password.
@@ -98,16 +90,25 @@ func TestMacaroonServiceMigration(t *testing.T) {
 
 type testMacaroonService struct {
 	*macaroons.Service
-	rks bakery.RootKeyStore
+	db kvdb.Backend
 }
 
 func createTestService(cfg *MacaroonServiceConfig) (*testMacaroonService,
 	error) {
 
+	db, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:     cfg.DBPath,
+		DBFileName: cfg.DBFileName,
+		DBTimeout:  cfg.DBTimeout,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to load macaroon db: "+
+			"%v", err)
+	}
+
 	// Create the macaroon authentication/authorization service.
 	service, err := macaroons.NewService(
-		cfg.RootKeyStore, cfg.MacaroonLocation, cfg.StatelessInit,
-		cfg.Checkers...,
+		db, cfg.MacaroonLocation, cfg.StatelessInit, cfg.Checkers...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to set up macaroon "+
@@ -116,16 +117,14 @@ func createTestService(cfg *MacaroonServiceConfig) (*testMacaroonService,
 
 	return &testMacaroonService{
 		Service: service,
-		rks:     cfg.RootKeyStore,
+		db:      db,
 	}, nil
 }
 
 func (s *testMacaroonService) stop() error {
 	var returnErr error
-	if eRKS, ok := s.rks.(macaroons.ExtendedRootKeyStore); ok {
-		if err := eRKS.Close(); err != nil {
-			returnErr = err
-		}
+	if err := s.db.Close(); err != nil {
+		returnErr = err
 	}
 
 	if err := s.Close(); err != nil {
