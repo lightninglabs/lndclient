@@ -2,13 +2,13 @@ module github.com/lightninglabs/lndclient
 
 require (
 	github.com/btcsuite/btcd v0.23.1
-	github.com/btcsuite/btcd/btcec/v2 v2.2.0
-	github.com/btcsuite/btcd/btcutil v1.1.1
-	github.com/btcsuite/btcd/btcutil/psbt v1.1.4
+	github.com/btcsuite/btcd/btcec/v2 v2.2.1
+	github.com/btcsuite/btcd/btcutil v1.1.2
+	github.com/btcsuite/btcd/btcutil/psbt v1.1.5
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.0
-	github.com/lightningnetwork/lnd v0.15.0-beta.rc6.0.20220727000530-fec8fd9c63dc
+	github.com/lightningnetwork/lnd v0.15.1-beta.rc1
 	github.com/lightningnetwork/lnd/kvdb v1.3.1
 	github.com/stretchr/testify v1.7.1
 	go.etcd.io/bbolt v1.3.6
@@ -104,6 +104,7 @@ require (
 	github.com/sirupsen/logrus v1.7.0 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/ulikunitz/xz v0.5.10 // indirect
