@@ -11,15 +11,20 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/rpcperms"
+	"go.etcd.io/bbolt"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
 )
 
 const (
+	// defaultDBName is the default macaroon db name.
+	defaultDBName = "macaroons.db"
+
 	// defaultDBTimeout is the default timeout to be used for the
 	// macaroon db connection.
 	defaultDBTimeout = 5 * time.Second
@@ -53,16 +58,22 @@ var (
 type MacaroonService struct {
 	cfg *MacaroonServiceConfig
 
+	db kvdb.Backend
+
 	*macaroons.Service
 }
 
 // MacaroonServiceConfig holds configuration values used by the MacaroonService.
 type MacaroonServiceConfig struct {
-	// RootKeyStorage is an implementation of the main
-	// bakery.RootKeyStorage interface. This implementation may also
-	// concurrenlty implement the larger macaroons.ExtendedRootKeyStore
-	// interface as well.
-	RootKeyStore bakery.RootKeyStore
+	// DBPath is the path to where the macaroon db file will be stored.
+	DBPath string
+
+	// DBFile is the name of the macaroon db.
+	DBFileName string
+
+	// DBTimeout is the maximum time we wait for the bbolt database to be
+	// opened.
+	DBTimeout time.Duration
 
 	// MacaroonLocation is the value used for a macaroons' "Location" field.
 	MacaroonLocation string
@@ -111,8 +122,22 @@ type MacaroonServiceConfig struct {
 // MacaroonService object accordingly.
 func NewMacaroonService(cfg *MacaroonServiceConfig) (*MacaroonService, error) {
 	// Validate config.
+	if cfg.DBPath == "" {
+		return nil, errors.New("no macaroon db path provided")
+	}
+
 	if cfg.MacaroonLocation == "" {
 		return nil, errors.New("no macaroon location provided")
+	}
+
+	if cfg.DBFileName == "" {
+		cfg.DBFileName = defaultDBName
+	}
+
+	if cfg.DBTimeout == 0 {
+		cfg.DBTimeout = defaultDBTimeout
+	} else if cfg.DBTimeout < 0 {
+		return nil, errors.New("can't have a negative db timeout")
 	}
 
 	if cfg.RPCTimeout == 0 {
@@ -134,11 +159,6 @@ func NewMacaroonService(cfg *MacaroonServiceConfig) (*MacaroonService, error) {
 		return &ms, nil
 	}
 
-	_, extendedKeyStore := ms.cfg.RootKeyStore.(macaroons.ExtendedRootKeyStore)
-	if !extendedKeyStore {
-		return &ms, nil
-	}
-
 	if cfg.LndClient == nil || cfg.EphemeralKey == nil ||
 		cfg.KeyLocator == nil {
 
@@ -150,13 +170,32 @@ func NewMacaroonService(cfg *MacaroonServiceConfig) (*MacaroonService, error) {
 	return &ms, nil
 }
 
-// Start starts the macaroon validation service, creates or unlocks the
-// macaroon database and, if we are not in stateless mode, creates the default
-// macaroon if it doesn't exist yet.
+// Start starts the macaroon validation service, creates or unlocks the macaroon
+// database and, if we are not in stateless mode, creates the default macaroon
+// if it doesn't exist yet.
 func (ms *MacaroonService) Start() error {
+	// Open the database.
+	var err error
+	ms.db, err = kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:     ms.cfg.DBPath,
+		DBFileName: ms.cfg.DBFileName,
+		DBTimeout:  ms.cfg.DBTimeout,
+	})
+	if err == bbolt.ErrTimeout {
+		return fmt.Errorf("error while trying to open %s/%s: "+
+			"timed out after %v when trying to obtain exclusive "+
+			"lock - make sure no other daemon process "+
+			"(standalone or embedded in lightning-terminal) is "+
+			"trying to access this db", ms.cfg.DBPath,
+			ms.cfg.DBFileName, ms.cfg.DBTimeout)
+	}
+	if err != nil {
+		return fmt.Errorf("unable to load macaroon db: %v", err)
+	}
+
 	// Create the macaroon authentication/authorization service.
 	service, err := macaroons.NewService(
-		ms.cfg.RootKeyStore, ms.cfg.MacaroonLocation, ms.cfg.StatelessInit,
+		ms.db, ms.cfg.MacaroonLocation, ms.cfg.StatelessInit,
 		ms.cfg.Checkers...,
 	)
 	if err != nil {
@@ -164,13 +203,7 @@ func (ms *MacaroonService) Start() error {
 	}
 	ms.Service = service
 
-	_, extendedKeyStore := ms.cfg.RootKeyStore.(macaroons.ExtendedRootKeyStore)
 	switch {
-	// The passed root key store doesn't use the extended interface, so we
-	// can skip everything below.
-	case !extendedKeyStore:
-		break
-
 	case len(ms.cfg.DBPassword) != 0:
 		// If a non-empty DB password was provided, then use this
 		// directly to try and unlock the db.
@@ -277,12 +310,9 @@ func (ms *MacaroonService) Stop() error {
 		shutdownErr = err
 	}
 
-	rks := ms.cfg.RootKeyStore
-	if eRKS, ok := rks.(macaroons.ExtendedRootKeyStore); ok {
-		if err := eRKS.Close(); err != nil {
-			log.Errorf("Error closing macaroon DB: %v", err)
-			shutdownErr = err
-		}
+	if err := ms.db.Close(); err != nil {
+		log.Errorf("Error closing macaroon DB: %v", err)
+		shutdownErr = err
 	}
 
 	return shutdownErr
