@@ -12,7 +12,6 @@ import (
 // Tests that NewBasicConn works correctly when macaroon and TLS certificate
 //  data are passed in directly instead of being supplied as file paths.
 func TestParseTLSAndMacaroon(t *testing.T) {
-
 	tlsData := `-----BEGIN CERTIFICATE-----
 MIIDhzCCAm+gAwIBAgIUEkmdMOVPL92AwgsSYFFBvz4ilmUwDQYJKoZIhvcNAQEL
 BQAwUzELMAkGA1UEBhMCVVMxCzAJBgNVBAgMAk1OMRQwEgYDVQQHDAtNaW5uZWFw
