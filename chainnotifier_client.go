@@ -162,7 +162,6 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 			}
 
 			switch c := confEvent.Event.(type) {
-
 			// Script confirmed
 			case *chainrpc.ConfEvent_Conf:
 				tx, err := decodeTx(c.Conf.RawTx)

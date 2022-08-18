@@ -1,13 +1,12 @@
 PKG := github.com/lightninglabs/lndclient
 
-LINT_PKG := github.com/golangci/golangci-lint/cmd/golangci-lint
+TOOLS_DIR := tools
+
+GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 
 GO_BIN := ${GOPATH}/bin
-LINT_BIN := $(GO_BIN)/golangci-lint
+GOIMPORTS_BIN := $(GO_BIN)/gosimports
 
-LINT_COMMIT := v1.18.0
-
-DEPGET := cd /tmp && go get -v
 GOBUILD := go build -v
 GOINSTALL := go install -v
 GOTEST := go test -v
@@ -29,7 +28,7 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
-LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
+DOCKER_TOOLS = docker run -v $$(pwd):/build lndclient-tools
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -44,9 +43,9 @@ all: build check install
 # ============
 # DEPENDENCIES
 # ============
-$(LINT_BIN):
-	@$(call print, "Fetching linter")
-	$(DEPGET) $(LINT_PKG)@$(LINT_COMMIT)
+$(GOIMPORTS_BIN):
+	@$(call print, "Installing goimports.")
+	cd $(TOOLS_DIR); go install -trimpath $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -55,6 +54,10 @@ $(LINT_BIN):
 build:
 	@$(call print, "Building lndclient.")
 	$(GOBUILD) -ldflags="$(LDFLAGS)" $(PKG)
+
+docker-tools:
+	@$(call print, "Building tools docker image.")
+	docker build -q -t lndclient-tools $(TOOLS_DIR)
 
 # =======
 # TESTING
@@ -73,13 +76,15 @@ unit-race:
 # =========
 # UTILITIES
 # =========
-fmt:
+fmt: $(GOIMPORTS_BIN)
+	@$(call print, "Fixing imports.")
+	gosimports -w $(GOFILES_NOVENDOR)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
-lint: $(LINT_BIN)
+lint: docker-tools
 	@$(call print, "Linting source.")
-	$(LINT)
+	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
 
 .PHONY: default \
 	build \

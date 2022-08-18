@@ -81,11 +81,13 @@ func TestLightningClientAddInvoice(t *testing.T) {
 
 	validAddInvoice := func(in *lnrpc.Invoice, opts ...grpc.CallOption) (
 		*lnrpc.AddInvoiceResponse, error) {
+
 		return validResp, nil
 	}
 
 	errorAddInvoice := func(in *lnrpc.Invoice, opts ...grpc.CallOption) (
 		*lnrpc.AddInvoiceResponse, error) {
+
 		return nil, errors.New("error")
 	}
 

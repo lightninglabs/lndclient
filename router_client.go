@@ -398,8 +398,8 @@ func (r *routerClient) SendPayment(ctx context.Context,
 
 	if request.KeySend {
 		if request.PaymentHash != nil {
-			return nil, nil, fmt.Errorf(
-				"keysend payment must not include a preset payment hash")
+			return nil, nil, fmt.Errorf("keysend payment must not " +
+				"include a preset payment hash")
 		}
 
 		var preimage lntypes.Preimage
@@ -484,7 +484,6 @@ func (r *routerClient) trackPayment(ctx context.Context,
 				}
 
 				switch status.Convert(err).Code() {
-
 				// NotFound is only expected as a response to
 				// TrackPayment.
 				case codes.NotFound:
@@ -674,10 +673,10 @@ func (r *routerClient) SubscribeHtlcEvents(ctx context.Context) (
 // must be thread-safe.
 //
 // There are a few ways in which this method can exit:
-// - ctx canceled: the calling client cancels
-// - r.quit: the router is shut down
-// - lnd stream error: lnd has exited
-// - handler error: a critical error occurred while handing a htlc
+// - ctx canceled: the calling client cancels.
+// - r.quit: the router is shut down.
+// - lnd stream error: lnd has exited.
+// - handler error: a critical error occurred while handing a htlc.
 func (r *routerClient) InterceptHtlcs(ctx context.Context,
 	handler HtlcInterceptHandler) error {
 

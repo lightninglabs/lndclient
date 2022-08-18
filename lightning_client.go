@@ -352,6 +352,7 @@ type ChannelInfo struct {
 
 func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 	error) {
+
 	remoteVertex, err := route.NewVertexFromStr(channel.RemotePubkey)
 	if err != nil {
 		return nil, err
@@ -1339,9 +1340,8 @@ func (s *lightningClient) payInvoice(ctx context.Context, invoice string,
 
 		if err == nil {
 			// TODO: Use structured payment error when available,
-			// instead of this britle string matching.
+			// instead of this brittle string matching.
 			switch payResp.PaymentError {
-
 			// Paid successfully.
 			case PaymentResultSuccess:
 				log.Infof(
