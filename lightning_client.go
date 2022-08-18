@@ -937,6 +937,14 @@ type AcceptorRequest struct {
 	// CommitmentType is the commitment type that the initiator would like
 	// to use for the channel.
 	CommitmentType *lnwallet.CommitmentType
+
+	// WantsZeroConf indicates if initiator wants to open a zero-conf
+	// channel.
+	WantsZeroConf bool
+
+	// WantsSCIDAlias indicates if the initiator wants to use the scid-alias
+	// channel type.
+	WantsSCIDAlias bool
 }
 
 func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
@@ -991,6 +999,8 @@ func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
 		MaxAcceptedHtlcs: req.MaxAcceptedHtlcs,
 		ChannelFlags:     req.ChannelFlags,
 		CommitmentType:   commitmentType,
+		WantsZeroConf:    req.WantsZeroConf,
+		WantsSCIDAlias:   req.WantsScidAlias,
 	}, nil
 }
 
@@ -1031,6 +1041,11 @@ type AcceptorResponse struct {
 	// MinAcceptDepth is the number of confirmations we require before we
 	// consider the channel open.
 	MinAcceptDepth uint32
+
+	// ZeroConf signals that the responder wants this to be a zero-conf
+	// channel. Both nodes need to set the scid-alias feature bit.
+	// The minimum depth field must be zero if this is true.
+	ZeroConf bool
 }
 
 // QueryRoutesRequest is the request of a QueryRoutes call.
@@ -3561,6 +3576,7 @@ func (s *lightningClient) ChannelAcceptor(ctx context.Context,
 				MaxHtlcCount:    resp.MaxHtlcCount,
 				MinHtlcIn:       resp.MinHtlcIn,
 				MinAcceptDepth:  resp.MinAcceptDepth,
+				ZeroConf:        resp.ZeroConf,
 			}
 
 			if err := acceptStream.Send(rpcResp); err != nil {
