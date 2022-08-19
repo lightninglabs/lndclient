@@ -5,12 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"google.golang.org/grpc"
-
 	"github.com/lightningnetwork/lnd/lnrpc"
-
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
