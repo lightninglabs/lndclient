@@ -31,7 +31,8 @@ type SignerClient interface {
 	// `Output`, `HashType`, `SigHashes` and `InputIndex` fields are
 	// populated within the sign descriptors.
 	ComputeInputScript(ctx context.Context, tx *wire.MsgTx,
-		signDescriptors []*SignDescriptor) ([]*input.Script, error)
+		signDescriptors []*SignDescriptor, prevOutputs []*wire.TxOut) (
+		[]*input.Script, error)
 
 	// SignMessage signs a message with the key specified in the key
 	// locator. The returned signature is fixed-size LN wire format encoded.
@@ -269,7 +270,7 @@ func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
 		return nil, err
 	}
 	rpcSignDescs := marshallSignDescriptors(signDescriptors)
-	rpcPervOutputs := marshallTxOut(prevOutputs)
+	rpcPrevOutputs := marshallTxOut(prevOutputs)
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -279,7 +280,7 @@ func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
 		&signrpc.SignReq{
 			RawTxBytes:  txRaw,
 			SignDescs:   rpcSignDescs,
-			PrevOutputs: rpcPervOutputs,
+			PrevOutputs: rpcPrevOutputs,
 		},
 	)
 	if err != nil {
@@ -289,18 +290,21 @@ func (s *signerClient) SignOutputRaw(ctx context.Context, tx *wire.MsgTx,
 	return resp.RawSigs, nil
 }
 
-// ComputeInputScript generates the proper input script for P2WPKH output and
+// ComputeInputScript generates the proper input script for P2TR, P2WPKH and
 // NP2WPKH outputs. This method only requires that the `Output`, `HashType`,
 // `SigHashes` and `InputIndex` fields are populated within the sign
-// descriptors.
+// descriptors. Passing in the previous outputs is required when spending one
+// or more taproot (SegWit v1) outputs.
 func (s *signerClient) ComputeInputScript(ctx context.Context, tx *wire.MsgTx,
-	signDescriptors []*SignDescriptor) ([]*input.Script, error) {
+	signDescriptors []*SignDescriptor, prevOutputs []*wire.TxOut) (
+	[]*input.Script, error) {
 
 	txRaw, err := encodeTx(tx)
 	if err != nil {
 		return nil, err
 	}
 	rpcSignDescs := marshallSignDescriptors(signDescriptors)
+	rpcPrevOutputs := marshallTxOut(prevOutputs)
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -308,8 +312,9 @@ func (s *signerClient) ComputeInputScript(ctx context.Context, tx *wire.MsgTx,
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
 	resp, err := s.client.ComputeInputScript(
 		rpcCtx, &signrpc.SignReq{
-			RawTxBytes: txRaw,
-			SignDescs:  rpcSignDescs,
+			RawTxBytes:  txRaw,
+			SignDescs:   rpcSignDescs,
+			PrevOutputs: rpcPrevOutputs,
 		},
 	)
 	if err != nil {
