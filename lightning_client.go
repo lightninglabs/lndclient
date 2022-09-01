@@ -28,6 +28,18 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// OpenChannelOption is a functional type for an option that modifies an
+// OpenChannelRequest.
+type OpenChannelOption func(r *lnrpc.OpenChannelRequest)
+
+// WithZeroConf is an option for setting the zero confirmation flag on an
+// OpenChannelRequest.
+func WithZeroConf() OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.ZeroConf = true
+	}
+}
+
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
 	PayInvoice(ctx context.Context, invoice string,
@@ -114,7 +126,8 @@ type LightningClient interface {
 	// OpenChannel opens a channel to the peer provided with the amounts
 	// specified.
 	OpenChannel(ctx context.Context, peer route.Vertex,
-		localSat, pushSat btcutil.Amount, private bool) (
+		localSat, pushSat btcutil.Amount, private bool,
+		opts ...OpenChannelOption) (
 		*wire.OutPoint, error)
 
 	// CloseChannel closes the channel provided.
@@ -2651,21 +2664,26 @@ func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
 
 // OpenChannel opens a channel to the peer provided with the amounts specified.
 func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
-	localSat, pushSat btcutil.Amount, private bool) (*wire.OutPoint, error) {
+	localSat, pushSat btcutil.Amount, private bool,
+	opts ...OpenChannelOption) (*wire.OutPoint, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	rpcRequest := &lnrpc.OpenChannelRequest{
+		NodePubkey:         peer[:],
+		LocalFundingAmount: int64(localSat),
+		PushSat:            int64(pushSat),
+		Private:            private,
+	}
+
+	for _, opt := range opts {
+		opt(rpcRequest)
+	}
+
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
 
-	chanPoint, err := s.client.OpenChannelSync(
-		rpcCtx, &lnrpc.OpenChannelRequest{
-			NodePubkey:         peer[:],
-			LocalFundingAmount: int64(localSat),
-			PushSat:            int64(pushSat),
-			Private:            private,
-		},
-	)
+	chanPoint, err := s.client.OpenChannelSync(rpcCtx, rpcRequest)
 	if err != nil {
 		return nil, err
 	}
