@@ -40,6 +40,14 @@ func WithZeroConf() OpenChannelOption {
 	}
 }
 
+// WithFundingShim is an option for attaching a funding shim to an open channel
+// request.
+func WithFundingShim(shim *lnrpc.FundingShim) OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.FundingShim = shim
+	}
+}
+
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
 	PayInvoice(ctx context.Context, invoice string,
