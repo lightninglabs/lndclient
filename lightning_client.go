@@ -48,6 +48,14 @@ func WithFundingShim(shim *lnrpc.FundingShim) OpenChannelOption {
 	}
 }
 
+// WithCommitmentType is an option for specifying a commitment type for the open
+// channel request.
+func WithCommitmentType(t *lnrpc.CommitmentType) OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.CommitmentType = *t
+	}
+}
+
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
 	PayInvoice(ctx context.Context, invoice string,
