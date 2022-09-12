@@ -56,6 +56,13 @@ func WithCommitmentType(t *lnrpc.CommitmentType) OpenChannelOption {
 	}
 }
 
+// WithScid signals that the channel open should be an option-scid-alias one.
+func WithScid() OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.ScidAlias = true
+	}
+}
+
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
 	PayInvoice(ctx context.Context, invoice string,
