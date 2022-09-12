@@ -186,6 +186,12 @@ type LightningClient interface {
 	ChannelAcceptor(ctx context.Context, timeout time.Duration,
 		accept AcceptorFunction) (chan error, error)
 
+	// FundingStateStep is a funding related call that allows the execution
+	// of some preparatory steps for a funding workflow or manual
+	// progression of a funding workflow.
+	FundingStateStep(ctx context.Context, req *lnrpc.FundingTransitionMsg) (
+		*lnrpc.FundingStateStepResp, error)
+
 	// QueryRoutes can query LND to return a route (with fees) between two
 	// vertices.
 	QueryRoutes(ctx context.Context, req QueryRoutesRequest) (
@@ -3567,6 +3573,24 @@ func (s *lightningClient) ChannelAcceptor(ctx context.Context,
 	}()
 
 	return errChan, nil
+}
+
+// FundingStateStep is a funding related call that allows the execution
+// of some preparatory steps for a funding workflow or manual
+// progression of a funding workflow.
+func (s *lightningClient) FundingStateStep(ctx context.Context,
+	req *lnrpc.FundingTransitionMsg) (*lnrpc.FundingStateStepResp, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.FundingStateStep(rpcCtx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, err
 }
 
 // unmarshallHop unmarshalls a single hop.
