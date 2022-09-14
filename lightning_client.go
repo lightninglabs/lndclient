@@ -153,6 +153,14 @@ type LightningClient interface {
 		opts ...OpenChannelOption) (
 		*wire.OutPoint, error)
 
+	// OpenChannelStream opens a channel to the specified peer and with the
+	// specified arguments and options. This function returns a stream of
+	// updates.
+	OpenChannelStream(ctx context.Context, peer route.Vertex,
+		localSat, pushSat btcutil.Amount, private bool,
+		opts ...OpenChannelOption) (<-chan *OpenStatusUpdate,
+		<-chan error, error)
+
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
 		force bool, confTarget int32, deliveryAddr btcutil.Address) (
@@ -519,6 +527,29 @@ const (
 	// information about a channel has been fully closed.
 	FullyResolvedChannelUpdate
 )
+
+// OpenStatusUpdate is a wrapper for channel status updates following a channel
+// open attempt.
+type OpenStatusUpdate struct {
+	// ChanPending signals that the channel is now fully negotiated and the
+	// funding transaction published.
+	ChanPending *lnrpc.PendingUpdate
+
+	// ChanOpen signals that the channel's funding transaction has now
+	// reached the required number of confirmations on chain and can be
+	// used.
+	ChanOpen *lnrpc.ChannelOpenUpdate
+
+	// PsbtFund signals that the funding process has been suspended and the
+	// construction of a PSBT that funds the channel PK script is now
+	// required.
+	PsbtFund *lnrpc.ReadyForPsbtFunding
+
+	// PendingChanID is the pending channel ID of the created channel. This
+	// value may be used to further the funding flow manually via the
+	// FundingStateStep method.
+	PendingChanID []byte
+}
 
 // ChannelEventUpdate holds the data fields and type for a particular channel
 // update event.
@@ -2731,6 +2762,78 @@ func (s *lightningClient) OpenChannel(ctx context.Context, peer route.Vertex,
 		Hash:  *hash,
 		Index: chanPoint.OutputIndex,
 	}, nil
+}
+
+// getOpenStatusUpdate converts an lnrpc.OpenStatusUpdate to the higher level
+// OpenStatusUpdate.
+func (s *lightningClient) getOpenStatusUpdate(
+	rpcUpdate *lnrpc.OpenStatusUpdate) *OpenStatusUpdate {
+
+	result := &OpenStatusUpdate{}
+
+	switch rpcUpdate.Update.(type) {
+	case *lnrpc.OpenStatusUpdate_ChanPending:
+		result.ChanPending = rpcUpdate.GetChanPending()
+	case *lnrpc.OpenStatusUpdate_ChanOpen:
+		result.ChanOpen = rpcUpdate.GetChanOpen()
+	case *lnrpc.OpenStatusUpdate_PsbtFund:
+		result.PsbtFund = rpcUpdate.GetPsbtFund()
+	}
+
+	result.PendingChanID = rpcUpdate.GetPendingChanId()
+
+	return result
+}
+
+// OpenChannelStream opens a channel to the specified peer and with the
+// specified arguments and options. This function returns a stream of
+// updates.
+func (s *lightningClient) OpenChannelStream(ctx context.Context, peer route.Vertex,
+	localSat, pushSat btcutil.Amount, private bool,
+	opts ...OpenChannelOption) (<-chan *OpenStatusUpdate, <-chan error,
+	error) {
+
+	rpcRequest := &lnrpc.OpenChannelRequest{
+		NodePubkey:         peer[:],
+		LocalFundingAmount: int64(localSat),
+		PushSat:            int64(pushSat),
+		Private:            private,
+	}
+
+	for _, opt := range opts {
+		opt(rpcRequest)
+	}
+
+	updateStream, err := s.client.OpenChannel(ctx, rpcRequest)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	updates := make(chan *OpenStatusUpdate)
+	errChan := make(chan error, 1)
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			rpcUpdate, err := updateStream.Recv()
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			update := s.getOpenStatusUpdate(rpcUpdate)
+
+			select {
+			case updates <- update:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return updates, errChan, nil
 }
 
 // CloseChannelUpdate is an interface implemented by channel close updates.
