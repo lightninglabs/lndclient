@@ -40,6 +40,7 @@ var (
 		"ImportMissionControl":   "XImportMissionControl",
 		"EstimateFeeRate":        "EstimateFee",
 		"EstimateFeeToP2WSH":     "EstimateFee",
+		"OpenChannelStream":      "OpenChannel",
 	}
 )
 
