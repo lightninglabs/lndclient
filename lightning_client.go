@@ -2793,6 +2793,8 @@ func (s *lightningClient) OpenChannelStream(ctx context.Context, peer route.Vert
 	opts ...OpenChannelOption) (<-chan *OpenStatusUpdate, <-chan error,
 	error) {
 
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+
 	rpcRequest := &lnrpc.OpenChannelRequest{
 		NodePubkey:         peer[:],
 		LocalFundingAmount: int64(localSat),
@@ -2804,7 +2806,7 @@ func (s *lightningClient) OpenChannelStream(ctx context.Context, peer route.Vert
 		opt(rpcRequest)
 	}
 
-	updateStream, err := s.client.OpenChannel(ctx, rpcRequest)
+	updateStream, err := s.client.OpenChannel(rpcCtx, rpcRequest)
 	if err != nil {
 		return nil, nil, err
 	}
