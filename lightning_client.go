@@ -3918,6 +3918,9 @@ func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
 	go func() {
 		msg, err := interceptStream.Recv()
 		if err != nil {
+			log.Errorf("Could not receive from interceptor "+
+				"stream: %v", err)
+
 			errChan <- err
 			return
 		}
@@ -3927,7 +3930,7 @@ func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
 
 	select {
 	case <-ctxc.Done():
-		return nil, ctx.Err()
+		return nil, ctxc.Err()
 
 	case err := <-errChan:
 		return nil, err
