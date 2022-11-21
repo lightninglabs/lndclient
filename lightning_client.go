@@ -689,6 +689,24 @@ const (
 	InitiatorBoth
 )
 
+// ForceCloseAnchorState indicates the resolution state for the anchor.
+// There are three resolution states for the anchor: limbo, lost and recovered.
+type ForceCloseAnchorState int32
+
+const (
+	// ForceCloseAnchorStateLimbo is set if the recovered_balance is zero
+	// and limbo_balance is non-zero.
+	ForceCloseAnchorStateLimbo = ForceCloseAnchorState(lnrpc.PendingChannelsResponse_ForceClosedChannel_LIMBO)
+
+	// ForceCloseAnchorStateRecovered is set if the recovered_balance is
+	// non-zero.
+	ForceCloseAnchorStateRecovered = ForceCloseAnchorState(lnrpc.PendingChannelsResponse_ForceClosedChannel_RECOVERED)
+
+	// ForceCloseAnchorStateLost indicates a state that is neither
+	// ForceCloseAnchorStateLimbo nor ForceCloseAnchorStateRecovered.
+	ForceCloseAnchorStateLost = ForceCloseAnchorState(lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST)
+)
+
 // String provides the string represenetation of a close initiator.
 func (c Initiator) String() string {
 	switch c {
@@ -1896,6 +1914,12 @@ type PendingChannel struct {
 	// Capacity is the total amount of funds held in this channel.
 	Capacity btcutil.Amount
 
+	// LocalBalance is the local balance of this channel.
+	LocalBalance btcutil.Amount
+
+	// RemoteBalance is the remote balance of this channel.
+	RemoteBalance btcutil.Amount
+
 	// ChannelInitiator indicates which party opened the channel.
 	ChannelInitiator Initiator
 }
@@ -1923,6 +1947,8 @@ func NewPendingChannel(channel *lnrpc.PendingChannelsResponse_PendingChannel) (
 		ChannelPoint:     outpoint,
 		PubKeyBytes:      peer,
 		Capacity:         btcutil.Amount(channel.Capacity),
+		LocalBalance:     btcutil.Amount(channel.LocalBalance),
+		RemoteBalance:    btcutil.Amount(channel.RemoteBalance),
 		ChannelInitiator: initiator,
 	}, nil
 }
@@ -1934,6 +1960,26 @@ type ForceCloseChannel struct {
 
 	// CloseTxid is the close transaction that confirmed on chain.
 	CloseTxid chainhash.Hash
+
+	// LimboBalance is the balance in satoshis encumbered in this pending
+	// channel.
+	LimboBalance btcutil.Amount
+
+	// RecoveredBalance is the total value of funds successfully recovered
+	// from this channel.
+	RecoveredBalance btcutil.Amount
+
+	// MaturityHeight is the height at which funds can be swept into the
+	// wallet.
+	MaturityHeight int32
+
+	// BlocksUntilMaturity is the remaining number of blocks until the
+	// commitment output can be swept. Negative values indicate how many
+	// blocks have passed since becoming mature.
+	BlocksUntilMaturity int32
+
+	// AnchorState indicates the resolution state for the anchor.
+	AnchorState ForceCloseAnchorState
 }
 
 // WaitingCloseChannel describes a channel that we are waiting to be closed on
@@ -1995,8 +2041,13 @@ func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels
 		}
 
 		pending.PendingForceClose[i] = ForceCloseChannel{
-			PendingChannel: *channel,
-			CloseTxid:      *hash,
+			PendingChannel:      *channel,
+			CloseTxid:           *hash,
+			LimboBalance:        btcutil.Amount(force.LimboBalance),
+			RecoveredBalance:    btcutil.Amount(force.RecoveredBalance),
+			MaturityHeight:      int32(force.MaturityHeight),
+			BlocksUntilMaturity: force.BlocksTilMaturity,
+			AnchorState:         ForceCloseAnchorState(force.Anchor),
 		}
 	}
 
