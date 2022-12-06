@@ -162,6 +162,7 @@ type LndServices struct {
 	Client        LightningClient
 	WalletKit     WalletKitClient
 	ChainNotifier ChainNotifierClient
+	ChainKit      ChainKitClient
 	Signer        SignerClient
 	Invoices      InvoicesClient
 	Router        RouterClient
@@ -340,6 +341,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	notifierClient := newChainNotifierClient(
 		conn, macaroons[ChainNotifierServiceMac], timeout,
 	)
+	chainKitClient := newChainKitClient(
+		conn, macaroons[ChainKitServiceMac], timeout,
+	)
 	signerClient := newSignerClient(
 		conn, macaroons[SignerServiceMac], timeout,
 	)
@@ -377,6 +381,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 			Client:        lightningClient,
 			WalletKit:     walletKitClient,
 			ChainNotifier: notifierClient,
+			ChainKit:      chainKitClient,
 			Signer:        signerClient,
 			Invoices:      invoicesClient,
 			Router:        routerClient,
