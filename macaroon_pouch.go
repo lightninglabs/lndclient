@@ -17,6 +17,7 @@ const (
 	AdminServiceMac         LnrpcServiceMac = "admin.macaroon"
 	InvoiceServiceMac       LnrpcServiceMac = "invoices.macaroon"
 	ChainNotifierServiceMac LnrpcServiceMac = "chainnotifier.macaroon"
+	ChainKitServiceMac      LnrpcServiceMac = "chainkit.macaroon"
 	WalletKitServiceMac     LnrpcServiceMac = "walletkit.macaroon"
 	RouterServiceMac        LnrpcServiceMac = "router.macaroon"
 	SignerServiceMac        LnrpcServiceMac = "signer.macaroon"
@@ -30,6 +31,7 @@ var (
 	macaroonServices = []LnrpcServiceMac{
 		InvoiceServiceMac,
 		ChainNotifierServiceMac,
+		ChainKitServiceMac,
 		SignerServiceMac,
 		WalletKitServiceMac,
 		RouterServiceMac,
@@ -110,6 +112,7 @@ func newMacaroonPouch(macaroonDir, customMacPath, customMacHex string) (macaroon
 		return macaroonPouch{
 			InvoiceServiceMac:       mac,
 			ChainNotifierServiceMac: mac,
+			ChainKitServiceMac:      mac,
 			SignerServiceMac:        mac,
 			WalletKitServiceMac:     mac,
 			RouterServiceMac:        mac,
