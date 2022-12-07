@@ -9,18 +9,32 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+// LnrpcServiceMac is the name of a macaroon that can be used to authenticate
+// with a specific lnrpc service.
+type LnrpcServiceMac string
+
+const (
+	AdminServiceMac         LnrpcServiceMac = "admin.macaroon"
+	InvoiceServiceMac       LnrpcServiceMac = "invoices.macaroon"
+	ChainNotifierServiceMac LnrpcServiceMac = "chainnotifier.macaroon"
+	WalletKitServiceMac     LnrpcServiceMac = "walletkit.macaroon"
+	RouterServiceMac        LnrpcServiceMac = "router.macaroon"
+	SignerServiceMac        LnrpcServiceMac = "signer.macaroon"
+	ReadOnlyServiceMac      LnrpcServiceMac = "readonly.macaroon"
+)
+
 var (
-	// defaultMacaroonFileNames is the default list of macaroon file names
+	// macaroonServices is the default list of macaroon file names
 	// that lndclient will attempt to load if a macaroon directory is given
 	// instead of a single custom macaroon.
-	defaultMacaroonFileNames = []string{
-		invoiceMacFilename,
-		chainMacFilename,
-		signerMacFilename,
-		walletKitMacFilename,
-		routerMacFilename,
-		adminMacFilename,
-		readonlyMacFilename,
+	macaroonServices = []LnrpcServiceMac{
+		InvoiceServiceMac,
+		ChainNotifierServiceMac,
+		SignerServiceMac,
+		WalletKitServiceMac,
+		RouterServiceMac,
+		AdminServiceMac,
+		ReadOnlyServiceMac,
 	}
 )
 
@@ -68,7 +82,7 @@ func (s serializedMacaroon) WithMacaroonAuth(ctx context.Context) context.Contex
 // macaroonPouch holds the set of macaroons we need to interact with lnd for
 // Loop. Each sub-server has its own macaroon, and for the remaining temporary
 // calls that directly hit lnd, we'll use the admin macaroon.
-type macaroonPouch map[string]serializedMacaroon
+type macaroonPouch map[LnrpcServiceMac]serializedMacaroon
 
 // newMacaroonPouch returns a new instance of a fully populated macaroonPouch
 // given the directory where all the macaroons are stored.
@@ -94,13 +108,13 @@ func newMacaroonPouch(macaroonDir, customMacPath, customMacHex string) (macaroon
 
 	if mac != "" {
 		return macaroonPouch{
-			invoiceMacFilename:   mac,
-			chainMacFilename:     mac,
-			signerMacFilename:    mac,
-			walletKitMacFilename: mac,
-			routerMacFilename:    mac,
-			adminMacFilename:     mac,
-			readonlyMacFilename:  mac,
+			InvoiceServiceMac:       mac,
+			ChainNotifierServiceMac: mac,
+			SignerServiceMac:        mac,
+			WalletKitServiceMac:     mac,
+			RouterServiceMac:        mac,
+			AdminServiceMac:         mac,
+			ReadOnlyServiceMac:      mac,
 		}, nil
 	}
 
@@ -108,9 +122,9 @@ func newMacaroonPouch(macaroonDir, customMacPath, customMacHex string) (macaroon
 		m = make(macaroonPouch)
 	)
 
-	for _, macFileName := range defaultMacaroonFileNames {
-		m[macFileName], err = loadMacaroon(
-			macaroonDir, macFileName, customMacPath,
+	for _, macName := range macaroonServices {
+		m[macName], err = loadMacaroon(
+			macaroonDir, string(macName), customMacPath,
 		)
 		if err != nil {
 			return nil, err

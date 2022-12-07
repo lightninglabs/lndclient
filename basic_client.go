@@ -34,7 +34,7 @@ type basicClientOptions struct {
 // client defaults.
 func defaultBasicClientOptions() *basicClientOptions {
 	return &basicClientOptions{
-		macFilename: adminMacFilename,
+		macFilename: string(AdminServiceMac),
 	}
 }
 

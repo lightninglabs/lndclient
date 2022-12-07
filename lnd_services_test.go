@@ -338,7 +338,7 @@ func TestCustomMacaroonHex(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(
-		t, macaroons[invoiceMacFilename], serializedMacaroon(dummyMacStr),
+		t, macaroons[InvoiceServiceMac], serializedMacaroon(dummyMacStr),
 		"macaroon hex string not set correctly",
 	)
 
