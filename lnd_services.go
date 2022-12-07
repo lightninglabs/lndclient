@@ -172,6 +172,7 @@ type LndServices struct {
 	NodeAlias   string
 	NodePubkey  route.Vertex
 	Version     *verrpc.Version
+	ClientConn  *grpc.ClientConn
 
 	macaroons macaroonPouch
 }
@@ -384,6 +385,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 			NodeAlias:     nodeAlias,
 			NodePubkey:    route.Vertex(nodeKey),
 			Version:       version,
+			ClientConn:    conn,
 			macaroons:     macaroons,
 		},
 		cleanup: cleanup,
