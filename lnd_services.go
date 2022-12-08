@@ -172,6 +172,7 @@ type LndServices struct {
 	NodeAlias   string
 	NodePubkey  route.Vertex
 	Version     *verrpc.Version
+	ClientConn  *grpc.ClientConn
 
 	macaroons macaroonPouch
 }
@@ -277,7 +278,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		readonlyMac = serializedMacaroon(cfg.CustomMacaroonHex)
 	} else {
 		readonlyMac, err = loadMacaroon(
-			macaroonDir, readonlyMacFilename, cfg.CustomMacaroonPath,
+			macaroonDir, string(ReadOnlyServiceMac), cfg.CustomMacaroonPath,
 		)
 		if err != nil {
 			return nil, err
@@ -331,25 +332,25 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// With the macaroons loaded and the version checked, we can now create
 	// the real lightning client which uses the admin macaroon.
 	lightningClient := newLightningClient(
-		conn, timeout, chainParams, macaroons[adminMacFilename],
+		conn, timeout, chainParams, macaroons[AdminServiceMac],
 	)
 
 	// With the network check passed, we'll now initialize the rest of the
 	// sub-server connections, giving each of them their specific macaroon.
 	notifierClient := newChainNotifierClient(
-		conn, macaroons[chainMacFilename], timeout,
+		conn, macaroons[ChainNotifierServiceMac], timeout,
 	)
 	signerClient := newSignerClient(
-		conn, macaroons[signerMacFilename], timeout,
+		conn, macaroons[SignerServiceMac], timeout,
 	)
 	walletKitClient := newWalletKitClient(
-		conn, macaroons[walletKitMacFilename], timeout,
+		conn, macaroons[WalletKitServiceMac], timeout,
 	)
 	invoicesClient := newInvoicesClient(
-		conn, macaroons[invoiceMacFilename], timeout,
+		conn, macaroons[InvoiceServiceMac], timeout,
 	)
 	routerClient := newRouterClient(
-		conn, macaroons[routerMacFilename], timeout,
+		conn, macaroons[RouterServiceMac], timeout,
 	)
 
 	cleanup := func() {
@@ -384,6 +385,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 			NodeAlias:     nodeAlias,
 			NodePubkey:    route.Vertex(nodeKey),
 			Version:       version,
+			ClientConn:    conn,
 			macaroons:     macaroons,
 		},
 		cleanup: cleanup,
@@ -410,6 +412,21 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	}
 
 	return services, nil
+}
+
+// WithMacaroonAuthForService modifies the passed context to include the
+// macaroon KV metadata for the target Service. This method can be used to
+// add the macaroon at call time, rather than when the connection to
+// the gRPC server is created.
+func (s *LndServices) WithMacaroonAuthForService(ctx context.Context,
+	service LnrpcServiceMac) (context.Context, error) {
+
+	mac, ok := s.macaroons[service]
+	if !ok {
+		return nil, fmt.Errorf("unknown service %v", service)
+	}
+
+	return mac.WithMacaroonAuth(ctx), nil
 }
 
 // Close closes the lnd connection and waits for all sub server clients to
@@ -759,14 +776,6 @@ var (
 	)
 	defaultDataDir     = "data"
 	defaultChainSubDir = "chain"
-
-	adminMacFilename     = "admin.macaroon"
-	invoiceMacFilename   = "invoices.macaroon"
-	chainMacFilename     = "chainnotifier.macaroon"
-	walletKitMacFilename = "walletkit.macaroon"
-	routerMacFilename    = "router.macaroon"
-	signerMacFilename    = "signer.macaroon"
-	readonlyMacFilename  = "readonly.macaroon"
 
 	// maxMsgRecvSize is the largest gRPC message our client will receive.
 	// We set this to 200MiB.
