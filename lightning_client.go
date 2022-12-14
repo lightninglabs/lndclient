@@ -392,6 +392,16 @@ type ChannelInfo struct {
 	// CloseAddr is the optional upfront shutdown address set for a
 	// channel.
 	CloseAddr btcutil.Address
+
+	// ZeroConf indicates whether the channel is a zero conf channel or not.
+	ZeroConf bool
+
+	// ZeroConfScid is the confirmed on-chain zero-conf SCID.
+	ZeroConfScid uint64
+
+	// AliasScids contains a list of alias short channel identifiers that
+	// may be used for this channel. This array can be empty.
+	AliasScids []uint64
 }
 
 func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
@@ -433,7 +443,12 @@ func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 		RemoteConstraints: newChannelConstraint(
 			channel.RemoteConstraints,
 		),
+		ZeroConf:     channel.ZeroConf,
+		ZeroConfScid: channel.ZeroConfConfirmedScid,
 	}
+
+	chanInfo.AliasScids = make([]uint64, len(channel.AliasScids))
+	copy(chanInfo.AliasScids, channel.AliasScids)
 
 	chanInfo.PendingHtlcs = make([]PendingHtlc, len(channel.PendingHtlcs))
 	for i, rpcHtlc := range channel.PendingHtlcs {
