@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/channeldb"
+	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -30,7 +30,7 @@ type InvoicesClient interface {
 
 // InvoiceUpdate contains a state update for an invoice.
 type InvoiceUpdate struct {
-	State   channeldb.ContractState
+	State   invpkg.ContractState
 	AmtPaid btcutil.Amount
 }
 
@@ -166,17 +166,20 @@ func (s *invoicesClient) AddHoldInvoice(ctx context.Context,
 }
 
 func fromRPCInvoiceState(state lnrpc.Invoice_InvoiceState) (
-	channeldb.ContractState, error) {
+	invpkg.ContractState, error) {
 
 	switch state {
 	case lnrpc.Invoice_OPEN:
-		return channeldb.ContractOpen, nil
+		return invpkg.ContractOpen, nil
+
 	case lnrpc.Invoice_ACCEPTED:
-		return channeldb.ContractAccepted, nil
+		return invpkg.ContractAccepted, nil
+
 	case lnrpc.Invoice_SETTLED:
-		return channeldb.ContractSettled, nil
+		return invpkg.ContractSettled, nil
+
 	case lnrpc.Invoice_CANCELED:
-		return channeldb.ContractCanceled, nil
+		return invpkg.ContractCanceled, nil
 	}
 
 	return 0, errors.New("unknown state")
