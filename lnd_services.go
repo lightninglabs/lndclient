@@ -342,7 +342,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		conn, macaroons[ChainNotifierServiceMac], timeout,
 	)
 	chainKitClient := newChainKitClient(
-		conn, macaroons[ChainKitServiceMac], timeout,
+		conn, macaroons[ChainNotifierServiceMac], timeout,
 	)
 	signerClient := newSignerClient(
 		conn, macaroons[SignerServiceMac], timeout,
