@@ -24,10 +24,13 @@ func TestMacaroonServiceMigration(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDirPath)
 
-	rks, err := NewBoltMacaroonStore(
+	rks, backend, err := NewBoltMacaroonStore(
 		tempDirPath, "macaroons.db", defaultDBTimeout,
 	)
 	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, backend.Close())
+	}()
 
 	// The initial config we will use has an empty DB password.
 	cfg := &MacaroonServiceConfig{
