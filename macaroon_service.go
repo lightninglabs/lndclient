@@ -347,7 +347,7 @@ func (ms *MacaroonService) Interceptors() (grpc.UnaryServerInterceptor,
 // NewBoltMacaroonStore returns a new bakery.RootKeyStore, backed by a bolt DB
 // instance at the specified location.
 func NewBoltMacaroonStore(dbPath, dbFileName string,
-	dbTimeout time.Duration) (bakery.RootKeyStore, error) {
+	dbTimeout time.Duration) (bakery.RootKeyStore, kvdb.Backend, error) {
 
 	db, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:     dbPath,
@@ -355,15 +355,15 @@ func NewBoltMacaroonStore(dbPath, dbFileName string,
 		DBTimeout:  dbTimeout,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to open macaroon "+
+		return nil, nil, fmt.Errorf("unable to open macaroon "+
 			"db: %w", err)
 	}
 
 	rks, err := macaroons.NewRootKeyStorage(db)
 	if err != nil {
-		return nil, fmt.Errorf("unable to open init macaroon "+
+		return nil, nil, fmt.Errorf("unable to open init macaroon "+
 			"db: %w", err)
 	}
 
-	return rks, nil
+	return rks, db, nil
 }
