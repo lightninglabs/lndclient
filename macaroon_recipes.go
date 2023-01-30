@@ -41,6 +41,7 @@ var (
 		"EstimateFeeRate":        "EstimateFee",
 		"EstimateFeeToP2WSH":     "EstimateFee",
 		"OpenChannelStream":      "OpenChannel",
+		"ListSweepsVerbose":      "ListSweeps",
 	}
 )
 
