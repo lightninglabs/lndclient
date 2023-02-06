@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1612,7 +1613,7 @@ type Invoice struct {
 	SettleDate time.Time
 
 	// State is the invoice's current state.
-	State channeldb.ContractState
+	State invpkg.ContractState
 
 	// IsKeysend indicates whether the invoice was a spontaneous payment.
 	IsKeysend bool
@@ -1767,15 +1768,15 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 
 	switch resp.State {
 	case lnrpc.Invoice_OPEN:
-		invoice.State = channeldb.ContractOpen
+		invoice.State = invpkg.ContractOpen
 
 	case lnrpc.Invoice_ACCEPTED:
-		invoice.State = channeldb.ContractAccepted
+		invoice.State = invpkg.ContractAccepted
 
 	// If the invoice is settled, it also has a non-nil preimage, which we
 	// can set on our invoice.
 	case lnrpc.Invoice_SETTLED:
-		invoice.State = channeldb.ContractSettled
+		invoice.State = invpkg.ContractSettled
 		preimage, err := lntypes.MakePreimage(resp.RPreimage)
 		if err != nil {
 			return nil, err
@@ -1783,7 +1784,7 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 		invoice.Preimage = &preimage
 
 	case lnrpc.Invoice_CANCELED:
-		invoice.State = channeldb.ContractCanceled
+		invoice.State = invpkg.ContractCanceled
 
 	default:
 		return nil, fmt.Errorf("unknown invoice state: %v",
