@@ -184,8 +184,8 @@ type GrpcLndServices struct {
 	cleanup func()
 }
 
-// NewLndServices creates creates a connection to the given lnd instance and
-// creates a set of required RPC services.
+// NewLndServices creates a connection to the given lnd instance and creates a
+// set of required RPC services.
 func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// We need to use a custom dialer so we can also connect to unix
 	// sockets and not just TCP addresses.

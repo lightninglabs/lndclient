@@ -383,7 +383,7 @@ func (s *signerClient) VerifyMessage(ctx context.Context, msg, sig []byte,
 // derivation between the ephemeral public key and the key specified by the key
 // locator (or the node's identity private key if no key locator is specified):
 //
-//     P_shared = privKeyNode * ephemeralPubkey
+//	P_shared = privKeyNode * ephemeralPubkey
 //
 // The resulting shared public key is serialized in the compressed format and
 // hashed with SHA256, resulting in a final key length of 256 bits.

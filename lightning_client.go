@@ -753,7 +753,7 @@ type Transaction struct {
 
 	// Fee is the amount of fees our wallet committed to this transaction.
 	// Note that this field is not exhaustive, as it does not account for
-	// fees taken from inputs that that wallet doesn't know it owns (for
+	// fees taken from inputs that the wallet doesn't know it owns (for
 	// example, the fees taken from our channel balance when we close a
 	// channel).
 	Fee btcutil.Amount
@@ -1164,7 +1164,7 @@ type QueryRoutesRequest struct {
 	// along the route.
 	RouteHints [][]zpay32.HopHint
 
-	// MaxCltv when set is used the the CLTV limit.
+	// MaxCltv when set is used the CLTV limit.
 	MaxCltv *uint32
 
 	// UseMissionControl if set to true, edge probabilities from mission
@@ -1652,8 +1652,8 @@ type PendingHtlc struct {
 	HtlcIndex uint64
 
 	// ForwardingChannel is the channel that the htlc was forwarded from if
-	// if is an incoming hltc, or should to forwarded to if it is an
-	// outgoing htlc. This value may be zero for htlcs that we have not made
+	// is an incoming hltc, or should to forwarded to if it is an outgoing
+	// htlc. This value may be zero for htlcs that we have not made
 	// forwarding decisions for yet.
 	ForwardingChannel lnwire.ShortChannelID
 
