@@ -67,6 +67,10 @@ linters:
   - golint
   - maligned
   - scopelint
+  - varcheck
+  - nosnakecase
+  - structcheck
+  - deadcode
   
   # New linters that need a code adjustment first.
   - wrapcheck
@@ -99,4 +103,5 @@ linters:
   - thelper
   - exhaustruct
   - importas
+  - interfacebloat
 
