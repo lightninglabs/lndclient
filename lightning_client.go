@@ -4024,8 +4024,6 @@ func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
 		registerChan = make(chan bool, 1)
 		errChan      = make(chan error, 1)
 	)
-	ctxc, cancel := context.WithTimeout(interceptStream.Context(), timeout)
-	defer cancel()
 
 	// Read the first message in a goroutine because the Recv method blocks
 	// until the message arrives.
@@ -4043,9 +4041,6 @@ func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
 	}()
 
 	select {
-	case <-ctxc.Done():
-		return nil, ctxc.Err()
-
 	case err := <-errChan:
 		return nil, err
 
