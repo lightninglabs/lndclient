@@ -3,8 +3,7 @@ package lndclient
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
-	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -18,26 +17,31 @@ import (
 // service encrypted with an empty passphrase can successfully migrate to
 // using a shared key passphrase.
 func TestMacaroonServiceMigration(t *testing.T) {
-	// Create a temporary directory where we can store the macaroon db
-	// we are about to create.
-	tempDirPath, err := ioutil.TempDir("", ".testMacaroons")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDirPath)
+	// Create a temporary directory where we can store the macaroon db and
+	// the macaroon we are about to create.
+	tempDirPath := t.TempDir()
 
 	rks, backend, err := NewBoltMacaroonStore(
-		tempDirPath, "macaroons.db", defaultDBTimeout,
+		tempDirPath, "macaroons.db", defaultMacaroonTimeout,
 	)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, backend.Close())
 	}()
 
+	mockPerms := map[string][]bakery.Op{
+		"/uri.Test/WriteTest": {
+			bakery.Op{Entity: "entity", Action: "write"},
+		},
+	}
+
 	// The initial config we will use has an empty DB password.
 	cfg := &MacaroonServiceConfig{
 		MacaroonLocation: "testLocation",
-		MacaroonPath:     tempDirPath,
+		MacaroonPath:     filepath.Join(tempDirPath, "test.macaroon"),
 		DBPassword:       []byte{},
 		RootKeyStore:     rks,
+		RequiredPerms:    mockPerms,
 	}
 
 	// Create a new macaroon service with an empty password.
