@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"time"
 
@@ -18,12 +17,14 @@ import (
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
+	"gopkg.in/macaroon.v2"
 )
 
 const (
-	// defaultDBTimeout is the default timeout to be used for the
-	// macaroon db connection.
-	defaultDBTimeout = 5 * time.Second
+	// defaultMacaroonTimeout is the default timeout to be used for general
+	// macaroon operation, such as for the macaroon db connection, and for
+	// creating a context with a timeout when validating macaroons.
+	defaultMacaroonTimeout = 5 * time.Second
 )
 
 var (
@@ -127,6 +128,11 @@ func NewMacaroonService(cfg *MacaroonServiceConfig) (*MacaroonService, error) {
 			"are not in stateless mode")
 	}
 
+	if len(cfg.RequiredPerms) == 0 {
+		return nil, errors.New("the required permissions must be set " +
+			"and contain elements")
+	}
+
 	ms := MacaroonService{
 		cfg: cfg,
 	}
@@ -153,7 +159,8 @@ func NewMacaroonService(cfg *MacaroonServiceConfig) (*MacaroonService, error) {
 
 // Start starts the macaroon validation service, creates or unlocks the
 // macaroon database and, if we are not in stateless mode, creates the default
-// macaroon if it doesn't exist yet.
+// macaroon if it doesn't exist yet or regenerates the macaroon if the required
+// permissions have changed.
 func (ms *MacaroonService) Start() error {
 	// Create the macaroon authentication/authorization service.
 	service, err := macaroons.NewService(
@@ -231,10 +238,45 @@ func (ms *MacaroonService) Start() error {
 
 	// There are situations in which we don't want a macaroon to be created
 	// on disk (for example when running inside LiT stateless integrated
-	// mode). For any other cases, we create macaroon files in the default
-	// directory.
-	if ms.cfg.StatelessInit || lnrpc.FileExists(ms.cfg.MacaroonPath) {
+	// mode).
+	if ms.cfg.StatelessInit {
 		return nil
+	}
+
+	// If we are not in stateless mode and a macaroon file does exist, we
+	// check that the macaroon matches the required permissions. If not, we
+	// will delete the macaroon and create a new one.
+	if lnrpc.FileExists(ms.cfg.MacaroonPath) {
+		matches, err := ms.macaroonMatchesPermissions()
+		if err != nil {
+			log.Warnf("An error occurred when attempting to match "+
+				"the previous macaroon's permissions with the "+
+				"current required permissions. This may occur "+
+				"if the previous macaroon file is corrupted. "+
+				"The path to the file attempted to be used as "+
+				"the previous macaroon is: %s. If that file "+
+				"is the correct macaroon file and this error "+
+				"happens repeatedly on startup, please remove "+
+				"the macaroon file manually and restart "+
+				"once again to generate a new macaroon.",
+				ms.cfg.MacaroonPath)
+
+			return fmt.Errorf("unable to match the previous "+
+				"macaroon's permissions with the required "+
+				"permissions: %v", err)
+		}
+
+		// In case the old macaroon matches the required permissions,
+		// we don't need to create a new macaroon.
+		if matches {
+			return nil
+		}
+
+		// Else if the required permissions have been updated, we delete
+		// the old macaroon and create a new one.
+		log.Infof("Macaroon at %s does not have all required "+
+			"permissions. Deleting it and creating a new "+
+			"one", ms.cfg.MacaroonPath)
 	}
 
 	// We don't offer the ability to rotate macaroon root keys yet, so just
@@ -259,13 +301,7 @@ func (ms *MacaroonService) Start() error {
 		return err
 	}
 
-	err = ioutil.WriteFile(ms.cfg.MacaroonPath, macBytes, 0644)
-	if err != nil {
-		if err := os.Remove(ms.cfg.MacaroonPath); err != nil {
-			log.Errorf("Unable to remove %s: %v",
-				ms.cfg.MacaroonPath, err)
-		}
-	}
+	err = os.WriteFile(ms.cfg.MacaroonPath, macBytes, 0644)
 
 	return err
 }
@@ -366,4 +402,56 @@ func NewBoltMacaroonStore(dbPath, dbFileName string,
 	}
 
 	return rks, db, nil
+}
+
+// macaroonMatchesPermissions checks if the macaroon at the cfg.MacaroonPath
+// matches the required permissions. It returns true if the macaroon matches the
+// required permissions.
+func (ms *MacaroonService) macaroonMatchesPermissions() (bool, error) {
+	macBytes, err := os.ReadFile(ms.cfg.MacaroonPath)
+	if err != nil {
+		return false, fmt.Errorf("unable to read macaroon path: %v",
+			err)
+	}
+
+	// Make sure it actually is a macaroon by parsing it.
+	oldMac := &macaroon.Macaroon{}
+	if err := oldMac.UnmarshalBinary(macBytes); err != nil {
+		return false, fmt.Errorf("unable to decode macaroon: %v", err)
+	}
+
+	var (
+		authChecker   = ms.Checker.Auth(macaroon.Slice{oldMac})
+		requiredPerms = extractPerms(ms.cfg.RequiredPerms)
+	)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(), defaultMacaroonTimeout,
+	)
+	defer cancel()
+
+	_, err = authChecker.Allow(ctx, requiredPerms...)
+	if err != nil {
+		// If an error is returned here, it's most likely because the
+		// old macaroon doesn't match the required permissions. We
+		// therefore return false but not the error as this is expected
+		// behavior.
+		return false, nil
+	}
+
+	// If the number of ops in the allowed info is not the same as the
+	// number of required permissions, i.e. there are fewer required
+	// permissions than allowed ops, then the required permissions have been
+	// modified to require fewer permissions than the old macaroon has. We
+	// therefore need to regenerate the macaroon.
+	allowedInfo, err := authChecker.Allowed(ctx)
+	if err != nil {
+		return false, err
+	}
+	if len(allowedInfo.OpIndexes) != len(requiredPerms) {
+		return false, nil
+	}
+
+	// The old macaroon matches the required permissions.
+	return true, nil
 }
