@@ -1483,12 +1483,21 @@ func (s *lightningClient) payInvoice(ctx context.Context, invoice string,
 				)
 
 				r := payResp.PaymentRoute
-				preimage, err := lntypes.MakePreimage(
-					payResp.PaymentPreimage,
+
+				var (
+					preimage lntypes.Preimage
+					err      error
 				)
-				if err != nil {
-					return &PaymentResult{Err: err}
+
+				if payResp.PaymentPreimage != nil {
+					preimage, err = lntypes.MakePreimage(
+						payResp.PaymentPreimage,
+					)
+					if err != nil {
+						return &PaymentResult{Err: err}
+					}
 				}
+
 				return &PaymentResult{
 					PaidFee: btcutil.Amount(r.TotalFees), // nolint:staticcheck
 					PaidAmt: btcutil.Amount(
@@ -1777,11 +1786,16 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 	// can set on our invoice.
 	case lnrpc.Invoice_SETTLED:
 		invoice.State = invpkg.ContractSettled
-		preimage, err := lntypes.MakePreimage(resp.RPreimage)
-		if err != nil {
-			return nil, err
+
+		// AMP invoices do not have an invoice-level preimage even when
+		// they have been settled multiple times.
+		if !resp.IsAmp {
+			preimage, err := lntypes.MakePreimage(resp.RPreimage)
+			if err != nil {
+				return nil, err
+			}
+			invoice.Preimage = &preimage
 		}
-		invoice.Preimage = &preimage
 
 	case lnrpc.Invoice_CANCELED:
 		invoice.State = invpkg.ContractCanceled
