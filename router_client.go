@@ -548,13 +548,15 @@ func unmarshallPaymentStatus(rpcPayment *lnrpc.Payment) (
 
 	switch status.State {
 	case lnrpc.Payment_SUCCEEDED:
-		preimage, err := lntypes.MakePreimageFromStr(
-			rpcPayment.PaymentPreimage,
-		)
-		if err != nil {
-			return nil, err
+		if rpcPayment.PaymentPreimage != "" {
+			preimage, err := lntypes.MakePreimageFromStr(
+				rpcPayment.PaymentPreimage,
+			)
+			if err != nil {
+				return nil, err
+			}
+			status.Preimage = preimage
 		}
-		status.Preimage = preimage
 		status.Fee = lnwire.MilliSatoshi(rpcPayment.FeeMsat)
 		status.Value = lnwire.MilliSatoshi(rpcPayment.ValueMsat)
 
