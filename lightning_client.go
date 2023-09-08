@@ -1737,9 +1737,23 @@ func (s *lightningClient) LookupInvoice(ctx context.Context,
 
 // unmarshalInvoice creates an invoice from the rpc response provided.
 func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
-	hash, err := lntypes.MakeHash(resp.RHash)
-	if err != nil {
-		return nil, err
+	var (
+		hash lntypes.Hash
+		err  error
+	)
+	switch {
+	case !resp.IsAmp && len(resp.RHash) == 0:
+		return nil, fmt.Errorf("non-AMP invoice is missing hash")
+
+	case resp.IsAmp && len(resp.RHash) == 0:
+		// AMP invoices do not have an invoice-level hash, so we just
+		// leave it empty.
+
+	default:
+		hash, err = lntypes.MakeHash(resp.RHash)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	invoice := &Invoice{
