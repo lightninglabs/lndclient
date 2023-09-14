@@ -24,6 +24,24 @@ import (
 	"google.golang.org/grpc"
 )
 
+// LeaseDescriptor contains information about a locked output.
+type LeaseDescriptor struct {
+	// LockID is the ID of the lease.
+	LockID wtxmgr.LockID
+
+	// Outpoint is the outpoint of the locked output.
+	Outpoint wire.OutPoint
+
+	// Value is the value of the locked output in satoshis.
+	Value btcutil.Amount
+
+	// PkScript is the pkscript of the locked output.
+	PkScript []byte
+
+	// Expiration is the absolute time of the lock's expiration.
+	Expiration time.Time
+}
+
 // WalletKitClient exposes wallet functionality.
 type WalletKitClient interface {
 	// ListUnspent returns a list of all utxos spendable by the wallet with
@@ -39,6 +57,9 @@ type WalletKitClient interface {
 	// expiration through `ReleaseOutput`.
 	LeaseOutput(ctx context.Context, lockID wtxmgr.LockID,
 		op wire.OutPoint, leaseTime time.Duration) (time.Time, error)
+
+	// ListLeases returns a list of all currently locked outputs.
+	ListLeases(ctx context.Context) ([]LeaseDescriptor, error)
 
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
@@ -248,6 +269,54 @@ func (m *walletKitClient) LeaseOutput(ctx context.Context, lockID wtxmgr.LockID,
 	}
 
 	return time.Unix(int64(resp.Expiration), 0), nil
+}
+
+// ListLeases returns a list of all currently locked outputs.
+func (m *walletKitClient) ListLeases(ctx context.Context) ([]LeaseDescriptor,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	resp, err := m.client.ListLeases(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx),
+		&walletrpc.ListLeasesRequest{},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	leases := make([]LeaseDescriptor, 0, len(resp.LockedUtxos))
+	for _, leasedUtxo := range resp.LockedUtxos {
+		leasedUtxo := leasedUtxo
+
+		txHash, err := chainhash.NewHash(
+			leasedUtxo.Outpoint.TxidBytes,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(leasedUtxo.Id) != len(wtxmgr.LockID{}) {
+			return nil, fmt.Errorf("invalid lease lock id length")
+		}
+
+		var lockID wtxmgr.LockID
+		copy(lockID[:], leasedUtxo.Id)
+
+		leases = append(leases, LeaseDescriptor{
+			LockID: lockID,
+			Outpoint: wire.OutPoint{
+				Hash:  *txHash,
+				Index: leasedUtxo.Outpoint.OutputIndex,
+			},
+			Value:      btcutil.Amount(leasedUtxo.Value),
+			PkScript:   leasedUtxo.PkScript,
+			Expiration: time.Unix(int64(leasedUtxo.Expiration), 0),
+		})
+	}
+
+	return leases, nil
 }
 
 // ReleaseOutput unlocks an output, allowing it to be available for coin
