@@ -1113,6 +1113,10 @@ func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
 		commitmentType = new(lnwallet.CommitmentType)
 		*commitmentType = lnwallet.CommitmentTypeScriptEnforcedLease
 
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeSimpleTaproot
+
 	default:
 		return nil, fmt.Errorf("unhandled commitment type %v",
 			req.CommitmentType)
