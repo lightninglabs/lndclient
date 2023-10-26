@@ -37,13 +37,14 @@ type SignerClient interface {
 	// SignMessage signs a message with the key specified in the key
 	// locator. The returned signature is fixed-size LN wire format encoded.
 	SignMessage(ctx context.Context, msg []byte,
-		locator keychain.KeyLocator) ([]byte, error)
+		locator keychain.KeyLocator, opts ...SignMessageOption) ([]byte,
+		error)
 
 	// VerifyMessage verifies a signature over a message using the public
 	// key provided. The signature must be fixed-size LN wire format
 	// encoded.
-	VerifyMessage(ctx context.Context, msg, sig []byte, pubkey [33]byte) (
-		bool, error)
+	VerifyMessage(ctx context.Context, msg, sig []byte, pubkey [33]byte,
+		opts ...VerifyMessageOption) (bool, error)
 
 	// DeriveSharedKey returns a shared secret key by performing
 	// Diffie-Hellman key derivation between the ephemeral public key and
@@ -59,9 +60,11 @@ type SignerClient interface {
 		keyLocator *keychain.KeyLocator) ([32]byte, error)
 
 	// MuSig2CreateSession creates a new musig session with the key and
-	// signers provided.
-	MuSig2CreateSession(ctx context.Context,
-		signerLoc *keychain.KeyLocator, signers [][32]byte,
+	// signers provided. Note that depending on the version the signer keys
+	// may need to be either 33 byte public keys or 32 byte Schnorr public
+	// keys.
+	MuSig2CreateSession(ctx context.Context, version input.MuSig2Version,
+		signerLoc *keychain.KeyLocator, signers [][]byte,
 		opts ...MuSig2SessionOpts) (*input.MuSig2SessionInfo, error)
 
 	// MuSig2RegisterNonces registers additional public nonces for a musig2
@@ -332,10 +335,31 @@ func (s *signerClient) ComputeInputScript(ctx context.Context, tx *wire.MsgTx,
 	return inputScripts, nil
 }
 
+// SignMessageOption is a function type that allows the customization of a
+// SignMessage RPC request.
+type SignMessageOption func(req *signrpc.SignMessageReq)
+
+// SignCompact sets the flag for returning a compact signature in the message
+// request.
+func SignCompact() SignMessageOption {
+	return func(req *signrpc.SignMessageReq) {
+		req.CompactSig = true
+	}
+}
+
+// SignSchnorr sets the flag for returning a Schnorr signature in the message
+// request.
+func SignSchnorr(taprootTweak []byte) SignMessageOption {
+	return func(req *signrpc.SignMessageReq) {
+		req.SchnorrSig = true
+		req.SchnorrSigTapTweak = taprootTweak
+	}
+}
+
 // SignMessage signs a message with the key specified in the key locator. The
 // returned signature is fixed-size LN wire format encoded.
 func (s *signerClient) SignMessage(ctx context.Context, msg []byte,
-	locator keychain.KeyLocator) ([]byte, error) {
+	locator keychain.KeyLocator, opts ...SignMessageOption) ([]byte, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -348,6 +372,10 @@ func (s *signerClient) SignMessage(ctx context.Context, msg []byte,
 		},
 	}
 
+	for _, opt := range opts {
+		opt(rpcIn)
+	}
+
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
 	resp, err := s.client.SignMessage(rpcCtx, rpcIn)
 	if err != nil {
@@ -357,10 +385,22 @@ func (s *signerClient) SignMessage(ctx context.Context, msg []byte,
 	return resp.Signature, nil
 }
 
+// VerifyMessageOption is a function type that allows the customization of a
+// VerifyMessage RPC request.
+type VerifyMessageOption func(req *signrpc.VerifyMessageReq)
+
+// VerifySchnorr sets the flag for checking a Schnorr signature in the message
+// request.
+func VerifySchnorr() VerifyMessageOption {
+	return func(req *signrpc.VerifyMessageReq) {
+		req.IsSchnorrSig = true
+	}
+}
+
 // VerifyMessage verifies a signature over a message using the public key
 // provided. The signature must be fixed-size LN wire format encoded.
 func (s *signerClient) VerifyMessage(ctx context.Context, msg, sig []byte,
-	pubkey [33]byte) (bool, error) {
+	pubkey [33]byte, opts ...VerifyMessageOption) (bool, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -369,6 +409,10 @@ func (s *signerClient) VerifyMessage(ctx context.Context, msg, sig []byte,
 		Msg:       msg,
 		Signature: sig,
 		Pubkey:    pubkey[:],
+	}
+
+	for _, opt := range opts {
+		opt(rpcIn)
 	}
 
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
@@ -448,16 +492,38 @@ func MuSig2TaprootTweakOpt(scriptRoot []byte,
 	}
 }
 
+// marshallMuSig2Version translates the passed input.MuSig2Version value to
+// signrpc.MuSig2Version.
+func marshallMuSig2Version(version input.MuSig2Version) (
+	signrpc.MuSig2Version, error) {
+
+	// Select the version based on the passed Go enum. Note that with new
+	// versions added this switch must be updated as RPC enum values are
+	// not directly mapped to the Go enum values defined in the input
+	// package.
+	switch version {
+	case input.MuSig2Version040:
+		return signrpc.MuSig2Version_MUSIG2_VERSION_V040, nil
+
+	case input.MuSig2Version100RC2:
+		return signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2, nil
+
+	default:
+		return signrpc.MuSig2Version_MUSIG2_VERSION_UNDEFINED,
+			fmt.Errorf("invalid MuSig2 version")
+	}
+}
+
 // MuSig2CreateSession creates a new musig session with the key and signers
 // provided.
 func (s *signerClient) MuSig2CreateSession(ctx context.Context,
-	signerLoc *keychain.KeyLocator, signers [][32]byte,
-	opts ...MuSig2SessionOpts) (*input.MuSig2SessionInfo, error) {
+	version input.MuSig2Version, signerLoc *keychain.KeyLocator,
+	signers [][]byte, opts ...MuSig2SessionOpts) (
+	*input.MuSig2SessionInfo, error) {
 
-	signerBytes := make([][]byte, len(signers))
-	for i, signer := range signers {
-		signerBytes[i] = make([]byte, 32)
-		copy(signerBytes[i], signer[:])
+	rpcMuSig2Version, err := marshallMuSig2Version(version)
+	if err != nil {
+		return nil, err
 	}
 
 	req := &signrpc.MuSig2SessionRequest{
@@ -465,7 +531,8 @@ func (s *signerClient) MuSig2CreateSession(ctx context.Context,
 			KeyFamily: int32(signerLoc.Family),
 			KeyIndex:  int32(signerLoc.Index),
 		},
-		AllSignerPubkeys: signerBytes,
+		AllSignerPubkeys: signers,
+		Version:          rpcMuSig2Version,
 	}
 
 	for _, opt := range opts {

@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -96,8 +97,8 @@ type LightningClient interface {
 	// limit the block range that we query over. These values can be left
 	// as zero to include all blocks. To include unconfirmed transactions
 	// in the query, endHeight must be set to -1.
-	ListTransactions(ctx context.Context, startHeight,
-		endHeight int32) ([]Transaction, error)
+	ListTransactions(ctx context.Context, startHeight, endHeight int32,
+		opts ...ListTransactionsOption) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
 	ListChannels(ctx context.Context, activeOnly, publicOnly bool) ([]ChannelInfo, error)
@@ -263,6 +264,12 @@ type LightningClient interface {
 	// SubscribeCustomMessages creates a subscription to custom messages
 	// received from our peers.
 	SubscribeCustomMessages(ctx context.Context) (<-chan CustomMessage,
+		<-chan error, error)
+
+	// SubscribeTransactions creates a uni-directional stream from the
+	// server to the client in which any newly discovered transactions
+	// relevant to the wallet are sent over.
+	SubscribeTransactions(ctx context.Context) (<-chan Transaction,
 		<-chan error, error)
 }
 
@@ -763,6 +770,18 @@ type Transaction struct {
 
 	// Label is an optional label set for on chain transactions.
 	Label string
+
+	// The hash of the block this transaction was included in.
+	BlockHash string
+
+	// The height of the block this transaction was included in.
+	BlockHeight int32
+
+	// Outputs that received funds for this transaction.
+	OutputDetails []*lnrpc.OutputDetail
+
+	// PreviousOutpoints/Inputs of this transaction.
+	PreviousOutpoints []*lnrpc.PreviousOutPoint
 }
 
 // Peer contains information about a peer we are connected to.
@@ -1464,12 +1483,21 @@ func (s *lightningClient) payInvoice(ctx context.Context, invoice string,
 				)
 
 				r := payResp.PaymentRoute
-				preimage, err := lntypes.MakePreimage(
-					payResp.PaymentPreimage,
+
+				var (
+					preimage lntypes.Preimage
+					err      error
 				)
-				if err != nil {
-					return &PaymentResult{Err: err}
+
+				if payResp.PaymentPreimage != nil {
+					preimage, err = lntypes.MakePreimage(
+						payResp.PaymentPreimage,
+					)
+					if err != nil {
+						return &PaymentResult{Err: err}
+					}
 				}
+
 				return &PaymentResult{
 					PaidFee: btcutil.Amount(r.TotalFees), // nolint:staticcheck
 					PaidAmt: btcutil.Amount(
@@ -1594,7 +1622,7 @@ type Invoice struct {
 	SettleDate time.Time
 
 	// State is the invoice's current state.
-	State channeldb.ContractState
+	State invpkg.ContractState
 
 	// IsKeysend indicates whether the invoice was a spontaneous payment.
 	IsKeysend bool
@@ -1749,23 +1777,28 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 
 	switch resp.State {
 	case lnrpc.Invoice_OPEN:
-		invoice.State = channeldb.ContractOpen
+		invoice.State = invpkg.ContractOpen
 
 	case lnrpc.Invoice_ACCEPTED:
-		invoice.State = channeldb.ContractAccepted
+		invoice.State = invpkg.ContractAccepted
 
 	// If the invoice is settled, it also has a non-nil preimage, which we
 	// can set on our invoice.
 	case lnrpc.Invoice_SETTLED:
-		invoice.State = channeldb.ContractSettled
-		preimage, err := lntypes.MakePreimage(resp.RPreimage)
-		if err != nil {
-			return nil, err
+		invoice.State = invpkg.ContractSettled
+
+		// AMP invoices do not have an invoice-level preimage even when
+		// they have been settled multiple times.
+		if !resp.IsAmp {
+			preimage, err := lntypes.MakePreimage(resp.RPreimage)
+			if err != nil {
+				return nil, err
+			}
+			invoice.Preimage = &preimage
 		}
-		invoice.Preimage = &preimage
 
 	case lnrpc.Invoice_CANCELED:
-		invoice.State = channeldb.ContractCanceled
+		invoice.State = invpkg.ContractCanceled
 
 	default:
 		return nil, fmt.Errorf("unknown invoice state: %v",
@@ -1781,9 +1814,22 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 	return invoice, nil
 }
 
+// ListTransactionsOption is a functional type for an option that modifies a
+// GetTransactionsRequest.
+type ListTransactionsOption func(r *lnrpc.GetTransactionsRequest)
+
+// WithTransactionsAccount is an option for setting the account on a
+// GetTransactionsRequest.
+func WithTransactionsAccount(account string) ListTransactionsOption {
+	return func(r *lnrpc.GetTransactionsRequest) {
+		r.Account = account
+	}
+}
+
 // ListTransactions returns all known transactions of the backing lnd node.
 func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
-	endHeight int32) ([]Transaction, error) {
+	endHeight int32, opts ...ListTransactionsOption) ([]Transaction,
+	error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -1794,6 +1840,10 @@ func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
 		EndHeight:   endHeight,
 	}
 
+	for _, opt := range opts {
+		opt(rpcIn)
+	}
+
 	resp, err := s.client.GetTransactions(rpcCtx, rpcIn)
 	if err != nil {
 		return nil, err
@@ -1801,28 +1851,40 @@ func (s *lightningClient) ListTransactions(ctx context.Context, startHeight,
 
 	txs := make([]Transaction, len(resp.Transactions))
 	for i, respTx := range resp.Transactions {
-		rawTx, err := hex.DecodeString(respTx.RawTxHex)
+		txs[i], err = unmarshallTransaction(respTx)
 		if err != nil {
 			return nil, err
-		}
-
-		var tx wire.MsgTx
-		if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
-			return nil, err
-		}
-
-		txs[i] = Transaction{
-			Tx:            &tx,
-			TxHash:        tx.TxHash().String(),
-			Timestamp:     time.Unix(respTx.TimeStamp, 0),
-			Amount:        btcutil.Amount(respTx.Amount),
-			Fee:           btcutil.Amount(respTx.TotalFees),
-			Confirmations: respTx.NumConfirmations,
-			Label:         respTx.Label,
 		}
 	}
 
 	return txs, nil
+}
+
+// unmarshallTransaction turns the RPC transaction into its native counterpart.
+func unmarshallTransaction(rpcTx *lnrpc.Transaction) (Transaction, error) {
+	rawTx, err := hex.DecodeString(rpcTx.RawTxHex)
+	if err != nil {
+		return Transaction{}, err
+	}
+
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
+		return Transaction{}, err
+	}
+
+	return Transaction{
+		Tx:                &tx,
+		TxHash:            tx.TxHash().String(),
+		Timestamp:         time.Unix(rpcTx.TimeStamp, 0),
+		Amount:            btcutil.Amount(rpcTx.Amount),
+		Fee:               btcutil.Amount(rpcTx.TotalFees),
+		Confirmations:     rpcTx.NumConfirmations,
+		Label:             rpcTx.Label,
+		BlockHash:         rpcTx.BlockHash,
+		BlockHeight:       rpcTx.BlockHeight,
+		OutputDetails:     rpcTx.OutputDetails,
+		PreviousOutpoints: rpcTx.PreviousOutpoints,
+	}, nil
 }
 
 // ListChannels retrieves all channels of the backing lnd node.
@@ -3976,8 +4038,6 @@ func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
 		registerChan = make(chan bool, 1)
 		errChan      = make(chan error, 1)
 	)
-	ctxc, cancel := context.WithTimeout(interceptStream.Context(), timeout)
-	defer cancel()
 
 	// Read the first message in a goroutine because the Recv method blocks
 	// until the message arrives.
@@ -3995,9 +4055,6 @@ func (s *lightningClient) RegisterRPCMiddleware(ctx context.Context,
 	}()
 
 	select {
-	case <-ctxc.Done():
-		return nil, ctxc.Err()
-
 	case err := <-errChan:
 		return nil, err
 
@@ -4135,4 +4192,64 @@ func (s *lightningClient) SubscribeCustomMessages(ctx context.Context) (
 	}()
 
 	return msgChan, errChan, nil
+}
+
+// SubscribeTransactions creates a uni-directional stream from the server to the
+// client in which any newly discovered transactions relevant to the wallet are
+// sent over.
+func (s *lightningClient) SubscribeTransactions(
+	ctx context.Context) (<-chan Transaction, <-chan error, error) {
+
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+
+	// Even though SubscribeTransactions uses the same request RPC type as
+	// ListTransactions, any parameters sent on the request are ignored...
+	// There's no point exposing them here either.
+	rpcReq := &lnrpc.GetTransactionsRequest{}
+
+	client, err := s.client.SubscribeTransactions(rpcCtx, rpcReq)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var (
+		// Buffer error channel by 1 so that consumer reading from this
+		// channel does not block our exit.
+		errChan = make(chan error, 1)
+		txChan  = make(chan Transaction)
+	)
+
+	s.wg.Add(1)
+	go func() {
+		defer func() {
+			// Close channels on exit so that callers know the
+			// subscription has finished.
+			close(errChan)
+			close(txChan)
+
+			s.wg.Done()
+		}()
+
+		for {
+			rpcTx, err := client.Recv()
+			if err != nil {
+				errChan <- fmt.Errorf("receive failed: %w", err)
+				return
+			}
+
+			tx, err := unmarshallTransaction(rpcTx)
+			if err != nil {
+				errChan <- fmt.Errorf("unmarshall failed: %w",
+					err)
+			}
+
+			select {
+			case txChan <- tx:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return txChan, errChan, nil
 }

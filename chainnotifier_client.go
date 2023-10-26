@@ -13,14 +13,60 @@ import (
 	"google.golang.org/grpc"
 )
 
+// notifierOptions is a set of functional options that allow callers to further
+// modify the type of chain even notifications they receive.
+type notifierOptions struct {
+	// includeBlock if true, then the dispatched confirmation notification
+	// will include the block that mined the transaction.
+	includeBlock bool
+
+	// reOrgChan if set, will be sent on if the transaction is re-organized
+	// out of the chain. This channel being set will also imply that we
+	// don't cancel the notification listener after having received one
+	// confirmation event. That means the caller manually needs to cancel
+	// the passed in context to cancel being notified once the required
+	// number of confirmations have been reached.
+	reOrgChan chan struct{}
+}
+
+// defaultNotifierOptions returns the set of default options for the notifier.
+func defaultNotifierOptions() *notifierOptions {
+	return &notifierOptions{}
+}
+
+// NotifierOption is a functional option that allows a caller to modify the
+// events received from the notifier.
+type NotifierOption func(*notifierOptions)
+
+// WithIncludeBlock is an optional argument that allows the caller to specify
+// that the block that mined a transaction should be included in the response.
+func WithIncludeBlock() NotifierOption {
+	return func(o *notifierOptions) {
+		o.includeBlock = true
+	}
+}
+
+// WithReOrgChan configures a channel that will be sent on if the transaction is
+// re-organized out of the chain. This channel being set will also imply that we
+// don't cancel the notification listener after having received one confirmation
+// event. That means the caller manually needs to cancel the passed in context
+// to cancel being notified once the required number of confirmations have been
+// reached.
+func WithReOrgChan(reOrgChan chan struct{}) NotifierOption {
+	return func(o *notifierOptions) {
+		o.reOrgChan = reOrgChan
+	}
+}
+
 // ChainNotifierClient exposes base lightning functionality.
 type ChainNotifierClient interface {
 	RegisterBlockEpochNtfn(ctx context.Context) (
 		chan int32, chan error, error)
 
 	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,
-		pkScript []byte, numConfs, heightHint int32) (
-		chan *chainntnfs.TxConfirmation, chan error, error)
+		pkScript []byte, numConfs, heightHint int32,
+		opts ...NotifierOption) (chan *chainntnfs.TxConfirmation,
+		chan error, error)
 
 	RegisterSpendNtfn(ctx context.Context,
 		outpoint *wire.OutPoint, pkScript []byte, heightHint int32) (
@@ -126,20 +172,26 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 }
 
 func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
-	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint int32) (
-	chan *chainntnfs.TxConfirmation, chan error, error) {
+	txid *chainhash.Hash, pkScript []byte, numConfs, heightHint int32,
+	optFuncs ...NotifierOption) (chan *chainntnfs.TxConfirmation,
+	chan error, error) {
+
+	opts := defaultNotifierOptions()
+	for _, optFunc := range optFuncs {
+		optFunc(opts)
+	}
 
 	var txidSlice []byte
 	if txid != nil {
 		txidSlice = txid[:]
 	}
 	confStream, err := s.client.RegisterConfirmationsNtfn(
-		s.chainMac.WithMacaroonAuth(ctx),
-		&chainrpc.ConfRequest{
-			Script:     pkScript,
-			NumConfs:   uint32(numConfs),
-			HeightHint: uint32(heightHint),
-			Txid:       txidSlice,
+		s.chainMac.WithMacaroonAuth(ctx), &chainrpc.ConfRequest{
+			Script:       pkScript,
+			NumConfs:     uint32(numConfs),
+			HeightHint:   uint32(heightHint),
+			Txid:         txidSlice,
+			IncludeBlock: opts.includeBlock,
 		},
 	)
 	if err != nil {
@@ -162,13 +214,25 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 			}
 
 			switch c := confEvent.Event.(type) {
-			// Script confirmed
+			// Script confirmed.
 			case *chainrpc.ConfEvent_Conf:
 				tx, err := decodeTx(c.Conf.RawTx)
 				if err != nil {
 					errChan <- err
 					return
 				}
+
+				var block *wire.MsgBlock
+				if opts.includeBlock {
+					block, err = decodeBlock(
+						c.Conf.RawBlock,
+					)
+					if err != nil {
+						errChan <- err
+						return
+					}
+				}
+
 				blockHash, err := chainhash.NewHash(
 					c.Conf.BlockHash,
 				)
@@ -176,16 +240,34 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 					errChan <- err
 					return
 				}
+
 				confChan <- &chainntnfs.TxConfirmation{
 					BlockHeight: c.Conf.BlockHeight,
 					BlockHash:   blockHash,
 					Tx:          tx,
 					TxIndex:     c.Conf.TxIndex,
+					Block:       block,
 				}
-				return
 
-			// Ignore reorg events, not supported.
+				// If we're running in re-org aware mode, then
+				// we don't return here, since we might want to
+				// be informed about the new block we got
+				// confirmed in after a re-org.
+				if opts.reOrgChan == nil {
+					return
+				}
+
+			// On a re-org, we just need to signal, we don't have
+			// any additional information. But we only signal if the
+			// caller requested to be notified about re-orgs.
 			case *chainrpc.ConfEvent_Reorg:
+				if opts.reOrgChan != nil {
+					select {
+					case opts.reOrgChan <- struct{}{}:
+					case <-ctx.Done():
+						return
+					}
+				}
 				continue
 
 			// Nil event, should never happen.
@@ -195,9 +277,8 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 
 			// Unexpected type.
 			default:
-				errChan <- fmt.Errorf(
-					"conf event has unexpected type",
-				)
+				errChan <- fmt.Errorf("conf event has " +
+					"unexpected type")
 				return
 			}
 		}

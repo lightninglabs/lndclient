@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -281,7 +282,7 @@ type SendPaymentRequest struct {
 // lnd's switch.
 type InterceptedHtlc struct {
 	// IncomingCircuitKey is lnd's unique identfier for the incoming htlc.
-	IncomingCircuitKey channeldb.CircuitKey
+	IncomingCircuitKey invpkg.CircuitKey
 
 	// Hash is the payment hash for the htlc. This may not be unique for
 	// MPP htlcs.
@@ -547,13 +548,15 @@ func unmarshallPaymentStatus(rpcPayment *lnrpc.Payment) (
 
 	switch status.State {
 	case lnrpc.Payment_SUCCEEDED:
-		preimage, err := lntypes.MakePreimageFromStr(
-			rpcPayment.PaymentPreimage,
-		)
-		if err != nil {
-			return nil, err
+		if rpcPayment.PaymentPreimage != "" {
+			preimage, err := lntypes.MakePreimageFromStr(
+				rpcPayment.PaymentPreimage,
+			)
+			if err != nil {
+				return nil, err
+			}
+			status.Preimage = preimage
 		}
-		status.Preimage = preimage
 		status.Fee = lnwire.MilliSatoshi(rpcPayment.FeeMsat)
 		status.Value = lnwire.MilliSatoshi(rpcPayment.ValueMsat)
 
@@ -753,7 +756,7 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 			)
 
 			req := InterceptedHtlc{
-				IncomingCircuitKey: channeldb.CircuitKey{
+				IncomingCircuitKey: invpkg.CircuitKey{
 					ChanID: chanIn,
 					HtlcID: request.IncomingCircuitKey.HtlcId,
 				},

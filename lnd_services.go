@@ -162,6 +162,7 @@ type LndServices struct {
 	Client        LightningClient
 	WalletKit     WalletKitClient
 	ChainNotifier ChainNotifierClient
+	ChainKit      ChainKitClient
 	Signer        SignerClient
 	Invoices      InvoicesClient
 	Router        RouterClient
@@ -239,6 +240,12 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 			macaroonDir = filepath.Join(
 				defaultLndDir, defaultDataDir,
 				defaultChainSubDir, "bitcoin", "simnet",
+			)
+
+		case NetworkSignet:
+			macaroonDir = filepath.Join(
+				defaultLndDir, defaultDataDir,
+				defaultChainSubDir, "bitcoin", "signet",
 			)
 
 		case NetworkRegtest:
@@ -340,6 +347,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	notifierClient := newChainNotifierClient(
 		conn, macaroons[ChainNotifierServiceMac], timeout,
 	)
+	chainKitClient := newChainKitClient(
+		conn, macaroons[ChainNotifierServiceMac], timeout,
+	)
 	signerClient := newSignerClient(
 		conn, macaroons[SignerServiceMac], timeout,
 	)
@@ -377,6 +387,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 			Client:        lightningClient,
 			WalletKit:     walletKitClient,
 			ChainNotifier: notifierClient,
+			ChainKit:      chainKitClient,
 			Signer:        signerClient,
 			Invoices:      invoicesClient,
 			Router:        routerClient,

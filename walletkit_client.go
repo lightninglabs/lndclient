@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -42,12 +44,32 @@ type LeaseDescriptor struct {
 	Expiration time.Time
 }
 
+// ListUnspentOption is a functional type for an option that modifies a
+// ListUnspentRequest.
+type ListUnspentOption func(r *walletrpc.ListUnspentRequest)
+
+// WithUnspentAccount is an option for setting the account on a
+// ListUnspentRequest.
+func WithUnspentAccount(account string) ListUnspentOption {
+	return func(r *walletrpc.ListUnspentRequest) {
+		r.Account = account
+	}
+}
+
+// WithUnspentUnconfirmedOnly is an option for setting the UnconfirmedOnly flag
+// on a ListUnspentRequest.
+func WithUnspentUnconfirmedOnly() ListUnspentOption {
+	return func(r *walletrpc.ListUnspentRequest) {
+		r.UnconfirmedOnly = true
+	}
+}
+
 // WalletKitClient exposes wallet functionality.
 type WalletKitClient interface {
 	// ListUnspent returns a list of all utxos spendable by the wallet with
 	// a number of confirmations between the specified minimum and maximum.
-	ListUnspent(ctx context.Context, minConfs, maxConfs int32) (
-		[]*lnwallet.Utxo, error)
+	ListUnspent(ctx context.Context, minConfs, maxConfs int32,
+		opts ...ListUnspentOption) ([]*lnwallet.Utxo, error)
 
 	// LeaseOutput locks an output to the given ID for the lease time
 	// provided, preventing it from being available for any future coin
@@ -160,15 +182,32 @@ type WalletKitClient interface {
 		account string) (*psbt.Packet, *wire.MsgTx, error)
 
 	// ImportPublicKey imports a public key as watch-only into the wallet.
+	//
+	// NOTE: Events (deposits/spends) for a key will only be detected by lnd
+	// if they happen after the import. Rescans to detect past events will
+	// be supported later on.
 	ImportPublicKey(ctx context.Context, pubkey *btcec.PublicKey,
 		addrType lnwallet.AddressType) error
+
+	// ImportTaprootScript imports a user-provided taproot script into the
+	// wallet. The imported script will act as a pay-to-taproot address.
+	//
+	// NOTE: Events (deposits/spends) for a key will only be detected by lnd
+	// if they happen after the import. Rescans to detect past events will
+	// be supported later on.
+	//
+	// NOTE: Taproot keys imported through this RPC currently _cannot_ be
+	// used for funding PSBTs. Only tracking the balance and UTXOs is
+	// currently supported.
+	ImportTaprootScript(ctx context.Context,
+		tapscript *waddrmgr.Tapscript) (btcutil.Address, error)
 }
 
 type walletKitClient struct {
 	client       walletrpc.WalletKitClient
 	walletKitMac serializedMacaroon
 	timeout      time.Duration
-	chainParams  *chaincfg.Params
+	params       *chaincfg.Params
 }
 
 // A compile-time constraint to ensure walletKitclient satisfies the
@@ -183,23 +222,29 @@ func newWalletKitClient(conn grpc.ClientConnInterface,
 		client:       walletrpc.NewWalletKitClient(conn),
 		walletKitMac: walletKitMac,
 		timeout:      timeout,
-		chainParams:  chainParams,
+		params:       chainParams,
 	}
 }
 
 // ListUnspent returns a list of all utxos spendable by the wallet with a number
 // of confirmations between the specified minimum and maximum.
 func (m *walletKitClient) ListUnspent(ctx context.Context, minConfs,
-	maxConfs int32) ([]*lnwallet.Utxo, error) {
+	maxConfs int32, opts ...ListUnspentOption) ([]*lnwallet.Utxo, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
-	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
-	resp, err := m.client.ListUnspent(rpcCtx, &walletrpc.ListUnspentRequest{
+	rpcReq := &walletrpc.ListUnspentRequest{
 		MinConfs: minConfs,
 		MaxConfs: maxConfs,
-	})
+	}
+
+	for _, opt := range opts {
+		opt(rpcReq)
+	}
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+	resp, err := m.client.ListUnspent(rpcCtx, rpcReq)
 	if err != nil {
 		return nil, err
 	}
@@ -640,9 +685,7 @@ func (m *walletKitClient) ListSweepsVerbose(ctx context.Context) (
 
 	var result []lnwallet.TransactionDetail
 	for _, txDetail := range rpcDetails.Transactions {
-		tx, err := UnmarshalTransactionDetail(
-			txDetail, m.chainParams,
-		)
+		tx, err := UnmarshalTransactionDetail(txDetail, m.params)
 		if err != nil {
 			return nil, err
 		}
@@ -832,6 +875,10 @@ func (m *walletKitClient) FinalizePsbt(ctx context.Context, packet *psbt.Packet,
 }
 
 // ImportPublicKey imports a public key as watch-only into the wallet.
+//
+// NOTE: Events (deposits/spends) for a key will only be detected by lnd if they
+// happen after the import. Rescans to detect past events will be supported
+// later on.
 func (m *walletKitClient) ImportPublicKey(ctx context.Context,
 	pubKey *btcec.PublicKey, addrType lnwallet.AddressType) error {
 
@@ -858,4 +905,101 @@ func (m *walletKitClient) ImportPublicKey(ctx context.Context,
 		},
 	)
 	return err
+}
+
+// ImportTaprootScript imports a user-provided taproot script into the wallet.
+// The imported script will act as a pay-to-taproot address.
+//
+// NOTE: Events (deposits/spends) for a key will only be detected by lnd if they
+// happen after the import. Rescans to detect past events will be supported
+// later on.
+//
+// NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
+// funding PSBTs. Only tracking the balance and UTXOs is currently supported.
+func (m *walletKitClient) ImportTaprootScript(ctx context.Context,
+	tapscript *waddrmgr.Tapscript) (btcutil.Address, error) {
+
+	if tapscript == nil {
+		return nil, fmt.Errorf("invalid tapscript")
+	}
+
+	var (
+		rpcReq    = &walletrpc.ImportTapscriptRequest{}
+		ctrlBlock = tapscript.ControlBlock
+	)
+
+	switch tapscript.Type {
+	case waddrmgr.TapscriptTypeFullTree:
+		rpcReq.InternalPublicKey = schnorr.SerializePubKey(
+			ctrlBlock.InternalKey,
+		)
+
+		rpcLeaves := make([]*walletrpc.TapLeaf, len(tapscript.Leaves))
+		for idx, leaf := range tapscript.Leaves {
+			rpcLeaves[idx] = &walletrpc.TapLeaf{
+				LeafVersion: uint32(leaf.LeafVersion),
+				Script:      leaf.Script,
+			}
+		}
+		rpcReq.Script = &walletrpc.ImportTapscriptRequest_FullTree{
+			FullTree: &walletrpc.TapscriptFullTree{
+				AllLeaves: rpcLeaves,
+			},
+		}
+
+	case waddrmgr.TapscriptTypePartialReveal:
+		rpcReq.InternalPublicKey = schnorr.SerializePubKey(
+			ctrlBlock.InternalKey,
+		)
+		rpcReq.Script = &walletrpc.ImportTapscriptRequest_PartialReveal{
+			PartialReveal: &walletrpc.TapscriptPartialReveal{
+				RevealedLeaf: &walletrpc.TapLeaf{
+					LeafVersion: uint32(
+						ctrlBlock.LeafVersion,
+					),
+					Script: tapscript.RevealedScript,
+				},
+				FullInclusionProof: ctrlBlock.InclusionProof,
+			},
+		}
+
+	case waddrmgr.TaprootKeySpendRootHash:
+		rpcReq.InternalPublicKey = schnorr.SerializePubKey(
+			ctrlBlock.InternalKey,
+		)
+		rpcReq.Script = &walletrpc.ImportTapscriptRequest_RootHashOnly{
+			RootHashOnly: tapscript.RootHash,
+		}
+
+	case waddrmgr.TaprootFullKeyOnly:
+		rpcReq.InternalPublicKey = schnorr.SerializePubKey(
+			tapscript.FullOutputKey,
+		)
+		rpcReq.Script = &walletrpc.ImportTapscriptRequest_FullKeyOnly{
+			FullKeyOnly: true,
+		}
+
+	default:
+		return nil, fmt.Errorf("invalid tapscript type <%d>",
+			tapscript.Type)
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	importResp, err := m.client.ImportTapscript(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx), rpcReq,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error importing tapscript into lnd: %v",
+			err)
+	}
+
+	p2trAddr, err := btcutil.DecodeAddress(importResp.P2TrAddress, m.params)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing imported p2tr addr: %v",
+			err)
+	}
+
+	return p2trAddr, nil
 }

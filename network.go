@@ -21,6 +21,9 @@ const (
 
 	// NetworkSimnet is bitcoin simnet.
 	NetworkSimnet Network = "simnet"
+
+	// NetworkSimnet is bitcoin signet.
+	NetworkSignet Network = "signet"
 )
 
 // ChainParams returns chain parameters based on a network name.
@@ -37,6 +40,9 @@ func (n Network) ChainParams() (*chaincfg.Params, error) {
 
 	case NetworkSimnet:
 		return &chaincfg.SimNetParams, nil
+
+	case NetworkSignet:
+		return &chaincfg.SigNetParams, nil
 
 	default:
 		return nil, errors.New("unknown network")
