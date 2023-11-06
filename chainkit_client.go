@@ -18,6 +18,11 @@ type ChainKitClient interface {
 	GetBlock(ctx context.Context, hash chainhash.Hash) (*wire.MsgBlock,
 		error)
 
+	// GetBlockHeader returns a block header given the corresponding block
+	// hash.
+	GetBlockHeader(ctx context.Context,
+		hash chainhash.Hash) (*wire.BlockHeader, error)
+
 	// GetBestBlock returns the latest block hash and current height of the
 	// valid most-work chain.
 	GetBestBlock(ctx context.Context) (chainhash.Hash, int32, error)
@@ -75,6 +80,33 @@ func (s *chainKitClient) GetBlock(ctxParent context.Context,
 	}
 
 	return msgBlock, nil
+}
+
+// GetBlockHeader returns a block header given the corresponding block hash.
+func (s *chainKitClient) GetBlockHeader(ctxParent context.Context,
+	hash chainhash.Hash) (*wire.BlockHeader, error) {
+
+	ctx, cancel := context.WithTimeout(ctxParent, s.timeout)
+	defer cancel()
+
+	macaroonAuth := s.chainMac.WithMacaroonAuth(ctx)
+	req := &chainrpc.GetBlockHeaderRequest{
+		BlockHash: hash[:],
+	}
+	resp, err := s.client.GetBlockHeader(macaroonAuth, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert raw block header bytes into wire.BlockHeader.
+	blockHeader := &wire.BlockHeader{}
+	blockReader := bytes.NewReader(resp.RawBlockHeader)
+	err = blockHeader.Deserialize(blockReader)
+	if err != nil {
+		return nil, err
+	}
+
+	return blockHeader, nil
 }
 
 // GetBestBlock returns the block hash and current height from the valid
