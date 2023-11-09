@@ -40,6 +40,38 @@
                 }
             ]
         },
+        "/chainrpc.ChainKit/GetBlock": {
+            "permissions": [
+                {
+			        "entity": "onchain",
+			        "action": "read"
+                }
+            ]
+		},
+		"/chainrpc.ChainKit/GetBlockHeader": {
+            "permissions": [
+                {
+			        "entity": "onchain",
+			        "action": "read"
+                }
+            ]
+		},
+		"/chainrpc.ChainKit/GetBestBlock": {
+            "permissions": [
+                {
+			        "entity": "onchain",
+			        "action": "read"
+                }
+            ]
+		},
+		"/chainrpc.ChainKit/GetBlockHash": {
+            "permissions": [
+                {
+			        "entity": "onchain",
+			        "action": "read"
+                }
+            ]
+		},
         "/chainrpc.ChainNotifier/RegisterBlockEpochNtfn": {
             "permissions": [
                 {
@@ -520,7 +552,7 @@
                 }
             ]
         },
-	"/lnrpc.Lightning/SendCustomMessage": {
+        "/lnrpc.Lightning/SendCustomMessage": {
             "permissions": [
                 {
                     "entity": "peers",
@@ -584,7 +616,7 @@
                 }
             ]
         },
-	"/lnrpc.Lightning/SubscribeCustomMessages": {
+        "/lnrpc.Lightning/SubscribeCustomMessages": {
             "permissions": [
                 {
                     "entity": "peers",
