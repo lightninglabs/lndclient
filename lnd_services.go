@@ -789,8 +789,8 @@ var (
 	defaultChainSubDir = "chain"
 
 	// maxMsgRecvSize is the largest gRPC message our client will receive.
-	// We set this to 200MiB.
-	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200)
+	// We set this to 400MiB.
+	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(400 * 1024 * 1024)
 )
 
 func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {
