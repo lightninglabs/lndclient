@@ -148,9 +148,16 @@ func (s *invoicesClient) AddHoldInvoice(ctx context.Context,
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	var hashBytes []byte
+	if in.Hash != nil {
+		hashBytes = in.Hash[:]
+	} else {
+		hashBytes = nil
+	}
+
 	rpcIn := &invoicesrpc.AddHoldInvoiceRequest{
 		Memo:       in.Memo,
-		Hash:       in.Hash[:],
+		Hash:       hashBytes,
 		Value:      int64(in.Value.ToSatoshis()),
 		Expiry:     in.Expiry,
 		CltvExpiry: in.CltvExpiry,
