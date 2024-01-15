@@ -12,7 +12,7 @@ import (
 
 var (
 	expectedPermissions = map[string]int{
-		"lnrpc":       12,
+		"lnrpc":       13,
 		"chainrpc":    1,
 		"invoicesrpc": 2,
 		"routerrpc":   2,
