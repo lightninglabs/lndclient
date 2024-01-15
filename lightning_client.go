@@ -271,6 +271,13 @@ type LightningClient interface {
 	// relevant to the wallet are sent over.
 	SubscribeTransactions(ctx context.Context) (<-chan Transaction,
 		<-chan error, error)
+
+	// SignMessage signs a message with this node's private key.
+	// The returned signature string is zbase32 encoded and pubkey
+	// recoverable, meaning that only the message digest and signature
+	// are needed for verification.
+	SignMessage(ctx context.Context, data []byte) (string,
+		error)
 }
 
 // Info contains info about the connected lnd node.
@@ -4130,6 +4137,23 @@ func (s *lightningClient) SendCustomMessage(ctx context.Context,
 
 	_, err := s.client.SendCustomMessage(rpcCtx, rpcReq)
 	return err
+}
+
+// SignMessage signs a message with this node's private key.
+// The returned signature string is zbase32 encoded and pubkey
+// recoverable, meaning that only the message digest and signature
+// are needed for verification.
+func (s *lightningClient) SignMessage(ctx context.Context,
+	data []byte) (string, error) {
+
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+	rpcReq := &lnrpc.SignMessageRequest{Msg: data}
+	rpcRes, err := s.client.SignMessage(rpcCtx, rpcReq)
+	if err != nil {
+		return "", err
+	}
+
+	return rpcRes.Signature, nil
 }
 
 // SubscribeCustomMessages subscribes to a stream of custom messages, optionally
