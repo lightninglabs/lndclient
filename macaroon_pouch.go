@@ -3,7 +3,7 @@ package lndclient
 import (
 	"context"
 	"encoding/hex"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"google.golang.org/grpc/metadata"
@@ -64,7 +64,7 @@ type serializedMacaroon string
 // newSerializedMacaroon reads a new serializedMacaroon from that target
 // macaroon path. If the file can't be found, then an error is returned.
 func newSerializedMacaroon(macaroonPath string) (serializedMacaroon, error) {
-	macBytes, err := ioutil.ReadFile(macaroonPath)
+	macBytes, err := os.ReadFile(macaroonPath)
 	if err != nil {
 		return "", err
 	}

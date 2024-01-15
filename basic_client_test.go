@@ -2,7 +2,6 @@ package lndclient
 
 import (
 	"encoding/hex"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -46,21 +45,19 @@ XhkpT5dliEGFLNe6OOgeWTU1JpEXfCud/GImtNMHQi4EDWQfvWuCNGhOoQ==
 
 	// Now let's write the data to a file to make sure parseTLSAndMacaroon
 	// parses that properly as well.
-	tempDirPath, err := ioutil.TempDir("", ".testCreds")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDirPath)
+	tempDirPath := t.TempDir()
 
 	certPath := tempDirPath + "/tls.cert"
 	tlsPEMBytes := []byte(tlsData)
 
-	err = ioutil.WriteFile(certPath, tlsPEMBytes, 0644)
+	err = os.WriteFile(certPath, tlsPEMBytes, 0644)
 	require.NoError(t, err)
 
 	macPath := tempDirPath + "/test.macaroon"
 	macBytes, err := hex.DecodeString(macData)
 	require.NoError(t, err)
 
-	err = ioutil.WriteFile(macPath, macBytes, 0644)
+	err = os.WriteFile(macPath, macBytes, 0644)
 	require.NoError(t, err)
 
 	_, _, err = parseTLSAndMacaroon(
