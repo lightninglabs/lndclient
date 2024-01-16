@@ -278,6 +278,14 @@ type LightningClient interface {
 	// are needed for verification.
 	SignMessage(ctx context.Context, data []byte) (string,
 		error)
+
+	// VerifyMessage verifies a signature over a msg. The signature must
+	// be zbase32 encoded and signed by an active node in the resident
+	// node's channel database. In addition to returning the validity of
+	// the signature, VerifyMessage also returns the recovered pubkey
+	// from the signature.
+	VerifyMessage(ctx context.Context, data []byte, signature string) (bool,
+		string, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -4154,6 +4162,24 @@ func (s *lightningClient) SignMessage(ctx context.Context,
 	}
 
 	return rpcRes.Signature, nil
+}
+
+// VerifyMessage verifies a signature over a msg. The signature must
+// be zbase32 encoded and signed by an active node in the resident
+// node's channel database. In addition to returning the validity of
+// the signature, VerifyMessage also returns the recovered pubkey
+// from the signature.
+func (s *lightningClient) VerifyMessage(ctx context.Context,
+	data []byte, signature string) (bool, string, error) {
+
+	rpcCtx := s.adminMac.WithMacaroonAuth(ctx)
+	rpcReq := &lnrpc.VerifyMessageRequest{Msg: data, Signature: signature}
+	rpcRes, err := s.client.VerifyMessage(rpcCtx, rpcReq)
+	if err != nil {
+		return false, "", err
+	}
+
+	return rpcRes.Valid, rpcRes.Pubkey, nil
 }
 
 // SubscribeCustomMessages subscribes to a stream of custom messages, optionally
