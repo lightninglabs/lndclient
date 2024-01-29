@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc"
 )
 
@@ -30,8 +31,9 @@ type InvoicesClient interface {
 
 // InvoiceUpdate contains a state update for an invoice.
 type InvoiceUpdate struct {
-	State   invpkg.ContractState
-	AmtPaid btcutil.Amount
+	State       invpkg.ContractState
+	AmtPaid     btcutil.Amount
+	AmtPaidMsat lnwire.MilliSatoshi
 }
 
 type invoicesClient struct {
@@ -130,8 +132,9 @@ func (s *invoicesClient) SubscribeSingleInvoice(ctx context.Context,
 
 			select {
 			case updateChan <- InvoiceUpdate{
-				State:   state,
-				AmtPaid: btcutil.Amount(invoice.AmtPaidSat),
+				State:       state,
+				AmtPaid:     btcutil.Amount(invoice.AmtPaidSat),
+				AmtPaidMsat: lnwire.MilliSatoshi(invoice.AmtPaidMsat),
 			}:
 			case <-ctx.Done():
 				return

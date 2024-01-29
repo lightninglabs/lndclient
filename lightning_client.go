@@ -77,6 +77,16 @@ type LightningClient interface {
 	EstimateFee(ctx context.Context, address btcutil.Address,
 		amt btcutil.Amount, confTarget int32) (btcutil.Amount, error)
 
+	// NewAddress generates a new address for the lnd client.
+	NewAddress(ctx context.Context, addressType lnrpc.AddressType) (string, error)
+
+	// SendMany handles a request for a transaction that creates multiple specified outputs in parallel.
+	SendMany(ctx context.Context, txBatch map[string]int64, satPerVbyte uint64) (string, error)
+
+	// EstimateFees estimates the total fees for a batch of transactions that pay the given
+	// amounts to the passed addresses.
+	EstimateFees(ctx context.Context, txBatch map[string]int64) (*lnrpc.EstimateFeeResponse, error)
+
 	// EstimateFeeToP2WSH estimates the total chain fees in satoshis to send
 	// the given amount to a single P2WSH output with the given target
 	// confirmation.
@@ -101,7 +111,7 @@ type LightningClient interface {
 		opts ...ListTransactionsOption) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
-	ListChannels(ctx context.Context, activeOnly, publicOnly bool) ([]ChannelInfo, error)
+	ListChannels(ctx context.Context, input *lnrpc.ListChannelsRequest) ([]ChannelInfo, error)
 
 	// PendingChannels returns a list of lnd's pending channels.
 	PendingChannels(ctx context.Context) (*PendingChannels, error)
@@ -409,6 +419,8 @@ type ChannelInfo struct {
 	// AliasScids contains a list of alias short channel identifiers that
 	// may be used for this channel. This array can be empty.
 	AliasScids []uint64
+
+	PeerAlias string
 }
 
 func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
@@ -452,6 +464,7 @@ func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 		),
 		ZeroConf:     channel.ZeroConf,
 		ZeroConfScid: channel.ZeroConfConfirmedScid,
+		PeerAlias:    channel.PeerAlias,
 	}
 
 	chanInfo.AliasScids = make([]uint64, len(channel.AliasScids))
@@ -1200,6 +1213,10 @@ type QueryRoutesRequest struct {
 
 	// FeeLimitMsat is the fee limit to use in millisatoshis.
 	FeeLimitMsat lnwire.MilliSatoshi
+
+	// The time preference for this payment. Set to -1 to optimize for fees only, to 1 to optimize for reliability only
+	// or a value inbetween for a mix.
+	TimePref float64
 }
 
 // Hop holds details about a single hop along a route.
@@ -1892,18 +1909,17 @@ func unmarshallTransaction(rpcTx *lnrpc.Transaction) (Transaction, error) {
 }
 
 // ListChannels retrieves all channels of the backing lnd node.
-func (s *lightningClient) ListChannels(ctx context.Context, activeOnly,
-	publicOnly bool) ([]ChannelInfo, error) {
+func (s *lightningClient) ListChannels(
+	ctx context.Context,
+	input *lnrpc.ListChannelsRequest,
+) ([]ChannelInfo, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	response, err := s.client.ListChannels(
 		s.adminMac.WithMacaroonAuth(rpcCtx),
-		&lnrpc.ListChannelsRequest{
-			ActiveOnly: activeOnly,
-			PublicOnly: publicOnly,
-		},
+		input,
 	)
 	if err != nil {
 		return nil, err
@@ -3925,6 +3941,7 @@ func (s *lightningClient) QueryRoutes(ctx context.Context,
 			},
 		},
 		UseMissionControl: req.UseMissionControl,
+		TimePref:          req.TimePref,
 	}
 
 	if req.Source != nil {
@@ -4256,4 +4273,74 @@ func (s *lightningClient) SubscribeTransactions(
 	}()
 
 	return txChan, errChan, nil
+}
+
+// NewAddress generates a new address for the lnd client.
+func (s *lightningClient) NewAddress(ctx context.Context, addressType lnrpc.AddressType) (
+	string, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.NewAddress(
+		rpcCtx,
+		&lnrpc.NewAddressRequest{
+			Type: addressType,
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Address, nil
+}
+
+// SendMany handles a request for a transaction that creates multiple specified outputs in parallel.
+func (s *lightningClient) SendMany(ctx context.Context, txBatch map[string]int64, satPerVbyte uint64) (
+	string, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+
+	resp, err := s.client.SendMany(
+		rpcCtx,
+		&lnrpc.SendManyRequest{
+			AddrToAmount:     txBatch,
+			SatPerVbyte:      satPerVbyte,
+			SpendUnconfirmed: false,
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Txid, nil
+}
+
+// EstimateFees estimates the total fees for a batch of transactions that pay the given
+// amounts to the passed addresses.
+func (s *lightningClient) EstimateFees(ctx context.Context, txBatch map[string]int64) (
+	*lnrpc.EstimateFeeResponse, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+	resp, err := s.client.EstimateFee(
+		rpcCtx,
+		&lnrpc.EstimateFeeRequest{
+			AddrToAmount: txBatch,
+			TargetConf:   1, // confirm within x blocks
+			MinConfs:     1, // use utxos with a minimum conf of x blocks
+		},
+	)
+	if err != nil {
+		return resp, err
+	}
+
+	return resp, nil
 }
