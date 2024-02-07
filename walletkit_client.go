@@ -111,13 +111,17 @@ type WalletKitClient interface {
 
 	// ListSweeps returns a list of sweep transaction ids known to our node.
 	// Note that this function only looks up transaction ids, and does not
-	// query our wallet for the full set of transactions.
-	ListSweeps(ctx context.Context) ([]string, error)
+	// query our wallet for the full set of transactions. If startHeight is
+	// set to zero it'll fetch all sweeps. If it's set to -1 it'll fetch the
+	// pending sweeps only.
+	ListSweeps(ctx context.Context, startHeight int32) ([]string, error)
 
 	// ListSweepsVerbose returns a list of sweep transactions known to our
-	// node with verbose information about each sweep.
-	ListSweepsVerbose(ctx context.Context) ([]lnwallet.TransactionDetail,
-		error)
+	// node with verbose information about each sweep. If startHeight is set
+	// to zero it'll fetch all sweeps. If it's set to -1 it'll fetch the
+	// pending sweeps only.
+	ListSweepsVerbose(ctx context.Context, startHeight int32) (
+		[]lnwallet.TransactionDetail, error)
 
 	// BumpFee attempts to bump the fee of a transaction by spending one of
 	// its outputs at the given fee rate. This essentially results in a
@@ -528,14 +532,17 @@ func (m *walletKitClient) EstimateFeeRate(ctx context.Context, confTarget int32)
 // ListSweeps returns a list of sweep transaction ids known to our node.
 // Note that this function only looks up transaction ids (Verbose=false), and
 // does not query our wallet for the full set of transactions.
-func (m *walletKitClient) ListSweeps(ctx context.Context) ([]string, error) {
+func (m *walletKitClient) ListSweeps(ctx context.Context, startHeight int32) (
+	[]string, error) {
+
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
 	resp, err := m.client.ListSweeps(
 		m.walletKitMac.WithMacaroonAuth(rpcCtx),
 		&walletrpc.ListSweepsRequest{
-			Verbose: false,
+			Verbose:     false,
+			StartHeight: startHeight,
 		},
 	)
 	if err != nil {
@@ -660,8 +667,8 @@ func UnmarshalTransactionDetail(tx *lnrpc.Transaction,
 
 // ListSweepsVerbose returns a list of sweep transactions known to our node
 // with verbose information about each sweep.
-func (m *walletKitClient) ListSweepsVerbose(ctx context.Context) (
-	[]lnwallet.TransactionDetail, error) {
+func (m *walletKitClient) ListSweepsVerbose(ctx context.Context,
+	startHeight int32) ([]lnwallet.TransactionDetail, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
@@ -669,7 +676,8 @@ func (m *walletKitClient) ListSweepsVerbose(ctx context.Context) (
 	resp, err := m.client.ListSweeps(
 		m.walletKitMac.WithMacaroonAuth(rpcCtx),
 		&walletrpc.ListSweepsRequest{
-			Verbose: true,
+			Verbose:     true,
+			StartHeight: startHeight,
 		},
 	)
 	if err != nil {
