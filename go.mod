@@ -1,15 +1,15 @@
 module github.com/lightninglabs/lndclient
 
 require (
-	github.com/btcsuite/btcd v0.24.0
+	github.com/btcsuite/btcd v0.24.1-0.20240123000108-62e6af035ec5
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.16.10-0.20231017144732-e3ff37491e9c
+	github.com/btcsuite/btcwallet v0.16.10-0.20240127010340-16b422a2e8bf
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.0
-	github.com/lightningnetwork/lnd v0.17.1-beta
+	github.com/lightningnetwork/lnd v0.17.4-beta
 	github.com/lightningnetwork/lnd/kvdb v1.4.4
 	github.com/stretchr/testify v1.8.4
 	google.golang.org/grpc v1.59.0
