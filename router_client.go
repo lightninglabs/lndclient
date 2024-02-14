@@ -304,6 +304,13 @@ type InterceptedHtlc struct {
 	// Since lnd has non-strict forwarding, this may not be the channel that
 	// the htlc ends up being forwarded on.
 	OutgoingChannelID lnwire.ShortChannelID
+
+	// CustomRecords holds the custom TLV records that were added to the
+	// payment.
+	CustomRecords map[uint64][]byte
+
+	// OnionBlob is the onion blob for the next hop.
+	OnionBlob []byte
 }
 
 // HtlcInterceptHandler is a function signature for handling code for htlc
@@ -770,6 +777,8 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 				IncomingExpiryHeight: request.IncomingExpiry,
 				OutgoingExpiryHeight: request.OutgoingExpiry,
 				OutgoingChannelID:    chanOut,
+				CustomRecords:        request.CustomRecords,
+				OnionBlob:            request.OnionBlob,
 			}
 
 			// Try to send our interception request, failing on
