@@ -552,14 +552,6 @@
                 }
             ]
         },
-        "/lnrpc.Lightning/SendCustomMessage": {
-            "permissions": [
-                {
-                    "entity": "peers",
-                    "action": "write"
-                }
-            ]
-        },
         "/lnrpc.Lightning/SendPayment": {
             "permissions": [
                 {
@@ -636,14 +628,6 @@
             "permissions": [
                 {
                     "entity": "info",
-                    "action": "read"
-                }
-            ]
-        },
-        "/lnrpc.Lightning/SubscribeCustomMessages": {
-            "permissions": [
-                {
-                    "entity": "offchain",
                     "action": "read"
                 }
             ]
@@ -889,14 +873,6 @@
             ]
         },
         "/routerrpc.Router/XImportMissionControl": {
-            "permissions": [
-                {
-                    "entity": "offchain",
-                    "action": "write"
-                }
-            ]
-        },
-        "/routerrpc.Router/UpdateChanStatus": {
             "permissions": [
                 {
                     "entity": "offchain",
