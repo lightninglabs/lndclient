@@ -392,6 +392,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 			Invoices:      invoicesClient,
 			Router:        routerClient,
 			Versioner:     versionerClient,
+			State:         stateClient,
 			ChainParams:   chainParams,
 			NodeAlias:     nodeAlias,
 			NodePubkey:    route.Vertex(nodeKey),
