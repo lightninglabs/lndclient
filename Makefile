@@ -1,4 +1,4 @@
-PKG := github.com/lightninglabs/lndclient
+PKG := github.com/thomasbarrett/lndclient
 
 TOOLS_DIR := tools
 
