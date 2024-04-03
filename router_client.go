@@ -281,6 +281,9 @@ type SendPaymentRequest struct {
 	// only, to 1 to optimize for reliability only or a value in-between for
 	// a mix.
 	TimePref float64
+
+	// AMP is set to true if the payment should be an AMP payment.
+	AMP bool
 }
 
 // InterceptedHtlc contains information about a htlc that was intercepted in
@@ -398,6 +401,7 @@ func (r *routerClient) SendPayment(ctx context.Context,
 		MaxParts:         request.MaxParts,
 		OutgoingChanIds:  request.OutgoingChanIds,
 		AllowSelfPayment: request.AllowSelfPayment,
+		Amp:              request.AMP,
 		TimePref:         request.TimePref,
 	}
 	if request.MaxCltv != nil {
