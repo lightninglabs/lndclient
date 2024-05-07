@@ -4334,7 +4334,7 @@ func (s *lightningClient) EstimateFees(ctx context.Context, txBatch map[string]i
 		rpcCtx,
 		&lnrpc.EstimateFeeRequest{
 			AddrToAmount: txBatch,
-			TargetConf:   1, // confirm within x blocks
+			TargetConf:   2, // confirm within x blocks
 			MinConfs:     1, // use utxos with a minimum conf of x blocks
 		},
 	)
