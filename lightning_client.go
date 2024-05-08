@@ -1215,7 +1215,7 @@ type QueryRoutesRequest struct {
 	FeeLimitMsat lnwire.MilliSatoshi
 
 	// The time preference for this payment. Set to -1 to optimize for fees only, to 1 to optimize for reliability only
-	// or a value inbetween for a mix.
+	// or a value in between for a mix.
 	TimePref float64
 }
 
@@ -4334,7 +4334,7 @@ func (s *lightningClient) EstimateFees(ctx context.Context, txBatch map[string]i
 		rpcCtx,
 		&lnrpc.EstimateFeeRequest{
 			AddrToAmount: txBatch,
-			TargetConf:   1, // confirm within x blocks
+			TargetConf:   2, // confirm within x blocks
 			MinConfs:     1, // use utxos with a minimum conf of x blocks
 		},
 	)
