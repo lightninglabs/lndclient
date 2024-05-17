@@ -73,6 +73,20 @@ type RouterClient interface {
 	// (enabled, disabled, or auto).
 	UpdateChanStatus(ctx context.Context,
 		channel *wire.OutPoint, action routerrpc.ChanStatusAction) error
+
+	// XAddLocalChanAlias is an experimental method that allows the caller
+	// to add a local channel alias to the router. This is only a locally
+	// stored alias, and will not be communicated to the channel peer via
+	// any message. Therefore, routing over such an alias will only work if
+	// the peer also calls this same RPC on their end.
+	XAddLocalChanAlias(ctx context.Context, alias,
+		baseScid lnwire.ShortChannelID) error
+
+	// XDeleteLocalChanAlias is an experimental method that allows the
+	// caller to remove a local channel alias in the router. The deletion
+	// will not be communicated to the channel peer via any message.
+	XDeleteLocalChanAlias(ctx context.Context, alias,
+		baseScid lnwire.ShortChannelID) error
 }
 
 // PaymentStatus describe the state of a payment.
@@ -319,6 +333,10 @@ type InterceptedHtlc struct {
 
 	// OnionBlob is the onion blob for the next hop.
 	OnionBlob []byte
+
+	// WireCustomRecords are custom records sent by the sender that were
+	// only present in the wire message and not the onion itself.
+	WireCustomRecords map[uint64][]byte
 }
 
 // HtlcInterceptHandler is a function signature for handling code for htlc
@@ -342,6 +360,10 @@ const (
 	// InterceptorActionResume indicates that an intercepted hltc should be
 	// resumed as normal.
 	InterceptorActionResume
+
+	// InterceptorActionResumeModified indicates that an intercepted hltc
+	// should be resumed as normal, but with modifications.
+	InterceptorActionResumeModified
 )
 
 // InterceptedHtlcResponse contains the actions that must be taken for an
@@ -354,6 +376,19 @@ type InterceptedHtlcResponse struct {
 	// Action is the action that should be taken for the htlc that is
 	// intercepted.
 	Action InterceptorAction
+
+	// IncomingAmount is the amount that should be used to validate the
+	// incoming htlc. This might be different from the actual HTLC amount
+	// for custom channels.
+	IncomingAmount lnwire.MilliSatoshi
+
+	// OutgoingAmount is the amount that should be set on the HTLC that is
+	// forwarded.
+	OutgoingAmount lnwire.MilliSatoshi
+
+	// CustomRecords are the custom records that should be added to the
+	// outgoing/forwarded HTLC.
+	CustomRecords map[uint64][]byte
 }
 
 // routerClient is a wrapper around the generated routerrpc proxy.
@@ -771,6 +806,7 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 			chanOut := lnwire.NewShortChanIDFromInt(
 				request.OutgoingRequestedChanId,
 			)
+			customRecords := request.IncomingHtlcWireCustomRecords
 
 			req := InterceptedHtlc{
 				IncomingCircuitKey: invpkg.CircuitKey{
@@ -789,6 +825,7 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 				OutgoingChannelID:    chanOut,
 				CustomRecords:        request.CustomRecords,
 				OnionBlob:            request.OnionBlob,
+				WireCustomRecords:    customRecords,
 			}
 
 			// Try to send our interception request, failing on
@@ -887,6 +924,13 @@ func rpcInterceptorResponse(request InterceptedHtlc,
 
 	case InterceptorActionResume:
 		rpcResp.Action = routerrpc.ResolveHoldForwardAction_RESUME
+
+	case InterceptorActionResumeModified:
+		rpcResp.Action = routerrpc.ResolveHoldForwardAction_RESUME_MODIFIED
+
+		rpcResp.IncomingAmountMsat = uint64(response.IncomingAmount)
+		rpcResp.OutgoingAmountMsat = uint64(response.OutgoingAmount)
+		rpcResp.OutgoingHtlcWireCustomRecords = response.CustomRecords
 
 	default:
 		return nil, fmt.Errorf("unknown action: %v", response.Action)
@@ -1046,6 +1090,58 @@ func (r *routerClient) UpdateChanStatus(ctx context.Context,
 				OutputIndex: channel.Index,
 			},
 			Action: action,
+		},
+	)
+	return err
+}
+
+// XAddLocalChanAlias is an experimental method that allows the caller
+// to add a local channel alias to the router. This is only a locally
+// stored alias, and will not be communicated to the channel peer via
+// any message. Therefore, routing over such an alias will only work if
+// the peer also calls this same RPC on their end.
+func (r *routerClient) XAddLocalChanAlias(ctx context.Context, alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.XAddLocalChanAliases(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.AddAliasesRequest{
+			AliasMaps: []*lnrpc.AliasMap{
+				{
+					BaseScid: baseScid.ToUint64(),
+					Aliases: []uint64{
+						alias.ToUint64(),
+					},
+				},
+			},
+		},
+	)
+	return err
+}
+
+// XDeleteLocalChanAlias is an experimental method that allows the
+// caller to remove a local channel alias in the router. The deletion
+// will not be communicated to the channel peer via any message.
+func (r *routerClient) XDeleteLocalChanAlias(ctx context.Context, alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.XDeleteLocalChanAliases(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.DeleteAliasesRequest{
+			AliasMaps: []*lnrpc.AliasMap{
+				{
+					BaseScid: baseScid.ToUint64(),
+					Aliases: []uint64{
+						alias.ToUint64(),
+					},
+				},
+			},
 		},
 	)
 	return err
