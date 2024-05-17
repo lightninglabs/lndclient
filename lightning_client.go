@@ -424,6 +424,10 @@ type ChannelInfo struct {
 	// AliasScids contains a list of alias short channel identifiers that
 	// may be used for this channel. This array can be empty.
 	AliasScids []uint64
+
+	// CustomChannelData is an optional field that can be used to store
+	// data for custom channels.
+	CustomChannelData []byte
 }
 
 func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
@@ -465,8 +469,9 @@ func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 		RemoteConstraints: newChannelConstraint(
 			channel.RemoteConstraints,
 		),
-		ZeroConf:     channel.ZeroConf,
-		ZeroConfScid: channel.ZeroConfConfirmedScid,
+		ZeroConf:          channel.ZeroConf,
+		ZeroConfScid:      channel.ZeroConfConfirmedScid,
+		CustomChannelData: channel.CustomChannelData,
 	}
 
 	chanInfo.AliasScids = make([]uint64, len(channel.AliasScids))
@@ -834,6 +839,10 @@ type ChannelBalance struct {
 
 	// PendingBalance is the sum of all pending channel balances.
 	PendingBalance btcutil.Amount
+
+	// CustomChannelData is an optional field that can be used to store
+	// data for custom channels.
+	CustomChannelData []byte
 }
 
 // Node describes a node in the network.
@@ -3454,8 +3463,11 @@ func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
 	}
 
 	return &ChannelBalance{
-		Balance:        btcutil.Amount(resp.Balance),            // nolint:staticcheck
-		PendingBalance: btcutil.Amount(resp.PendingOpenBalance), // nolint:staticcheck
+		//nolint:staticcheck
+		Balance: btcutil.Amount(resp.Balance),
+		//nolint:staticcheck
+		PendingBalance:    btcutil.Amount(resp.PendingOpenBalance),
+		CustomChannelData: resp.CustomChannelData,
 	}, nil
 }
 
