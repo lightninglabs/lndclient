@@ -1,4 +1,4 @@
-module github.com/lightninglabs/lndclient
+module github.com/thomasbarrett/lndclient
 
 require (
 	github.com/btcsuite/btcd v0.24.0

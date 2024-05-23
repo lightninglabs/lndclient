@@ -393,6 +393,7 @@ func (r *routerClient) SendPayment(ctx context.Context,
 		MaxParts:         request.MaxParts,
 		OutgoingChanIds:  request.OutgoingChanIds,
 		AllowSelfPayment: request.AllowSelfPayment,
+		Amt:              int64(request.Amount),
 	}
 	if request.MaxCltv != nil {
 		rpcReq.CltvLimit = *request.MaxCltv
@@ -429,7 +430,6 @@ func (r *routerClient) SendPayment(ctx context.Context,
 	// payment parameters.
 	if request.Invoice == "" {
 		rpcReq.Dest = request.Target[:]
-		rpcReq.Amt = int64(request.Amount)
 		rpcReq.PaymentHash = request.PaymentHash[:]
 		rpcReq.FinalCltvDelta = int32(request.FinalCLTVDelta)
 
