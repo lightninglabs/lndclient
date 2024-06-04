@@ -1,6 +1,6 @@
 run:
   # timeout for analysis
-  deadline: 4m
+  timeout: 4m
 
 linters-settings:
   govet:
@@ -20,7 +20,7 @@ linters-settings:
     excludes:
       - G402 # Look for bad TLS connection settings.
       - G306 # Poor file permissions used when writing to a new file.
-  staticcheck: 
+  staticcheck:
     go: "1.18"
     checks: ["-SA1019"]
 
@@ -58,20 +58,10 @@ linters:
 
   # Init functions are used by loggers throughout the codebase.
   - gochecknoinits
-  
+
   # Causes stack overflow, see https://github.com/polyfloyd/go-errorlint/issues/19.
   - errorlint
 
-  # Deprecated linters. See https://golangci-lint.run/usage/linters/.
-  - interfacer
-  - golint
-  - maligned
-  - scopelint
-  - varcheck
-  - nosnakecase
-  - structcheck
-  - deadcode
-  
   # New linters that need a code adjustment first.
   - wrapcheck
   - nolintlint
@@ -88,10 +78,8 @@ linters:
   - containedctx
   - contextcheck
   - errname
-  - exhaustivestruct
-  - goerr113
+  - err113
   - gomnd
-  - ifshort
   - noctx
   - nestif
   - wsl
@@ -104,4 +92,12 @@ linters:
   - exhaustruct
   - importas
   - interfacebloat
+  - protogetter
+  - revive
+  - depguard
+  - mnd
+  - perfsprint
+  - inamedparam
 
+  # Disabled disabled because the Go version (1.21.4) of the project < 1.22.
+  - copyloopvar
