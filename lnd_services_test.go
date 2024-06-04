@@ -319,7 +319,7 @@ func TestGetLndInfo(t *testing.T) {
 				require.Error(t, err)
 
 				// Error might be wrapped.
-				require.True(t, errors.Is(err, test.expected))
+				require.ErrorIs(t, err, test.expected)
 			}
 		})
 	}
