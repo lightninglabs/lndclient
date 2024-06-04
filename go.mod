@@ -9,7 +9,7 @@ require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcwallet v0.16.10-0.20240404104514-b2f31f9045fb
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.3
-	github.com/lightningnetwork/lnd v0.18.0-beta
+	github.com/lightningnetwork/lnd v0.18.0-beta.1
 	github.com/lightningnetwork/lnd/kvdb v1.4.8
 	github.com/stretchr/testify v1.9.0
 	google.golang.org/grpc v1.59.0
