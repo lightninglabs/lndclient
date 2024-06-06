@@ -64,6 +64,15 @@ func WithScid() OpenChannelOption {
 	}
 }
 
+// WithRemoteReserve signals that the channel open should set a remote reserve
+// amount.
+func WithRemoteReserve(reserve uint64) OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.RemoteChanReserveSat = reserve
+	}
+
+}
+
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
 	PayInvoice(ctx context.Context, invoice string,
