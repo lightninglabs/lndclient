@@ -3137,6 +3137,17 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 	return updateChan, errChan, nil
 }
 
+type InboundFee struct {
+	// BaseFeeMsat is the inbound base fee charged regardless of the number
+	// of milli-satoshis received in the channel. By default, only negative
+	// values are accepted.
+	BaseFeeMsat int32
+
+	// FeeRatePPM is the effective inbound fee rate in micro-satoshis (parts
+	// per million). By default, only negative values are accepted.
+	FeeRatePPM int32
+}
+
 // PolicyUpdateRequest holds UpdateChanPolicy request data.
 type PolicyUpdateRequest struct {
 	// BaseFeeMsat is the base fee charged regardless of the number of
@@ -3161,6 +3172,10 @@ type PolicyUpdateRequest struct {
 
 	// MinHtlcMsatSpecified if true, MinHtlcMsat is applied.
 	MinHtlcMsatSpecified bool
+
+	// InboundFee holds the optional inbound fee. If unset, the previously
+	// set value will be used.
+	InboundFee *InboundFee
 }
 
 // UpdateChanPolicy updates the channel policy for the passed chanPoint. If
@@ -3178,6 +3193,13 @@ func (s *lightningClient) UpdateChanPolicy(ctx context.Context,
 		FeeRate:       req.FeeRate,
 		TimeLockDelta: req.TimeLockDelta,
 		MaxHtlcMsat:   req.MaxHtlcMsat,
+	}
+
+	if req.InboundFee != nil {
+		rpcReq.InboundFee = &lnrpc.InboundFee{
+			BaseFeeMsat: req.InboundFee.BaseFeeMsat,
+			FeeRatePpm:  req.InboundFee.FeeRatePPM,
+		}
 	}
 
 	if req.MinHtlcMsatSpecified {
@@ -3230,6 +3252,14 @@ type RoutingPolicy struct {
 
 	// LastUpdate is the last update time for the edge policy.
 	LastUpdate time.Time
+
+	// InboundBaseFeeMsat is the inbound base fee charged regardless of the
+	// number of milli-satoshis received in the channel.
+	InboundBaseFeeMsat int32
+
+	// InboundFeeRatePPM is the effective inbound fee rate in micro-satoshis
+	// (parts per million).
+	InboundFeeRatePPM int32
 }
 
 // ChannelEdge holds the channel edge information and routing policies.
@@ -3265,13 +3295,15 @@ func getRoutingPolicy(policy *lnrpc.RoutingPolicy) *RoutingPolicy {
 	}
 
 	return &RoutingPolicy{
-		TimeLockDelta:    policy.TimeLockDelta,
-		MinHtlcMsat:      policy.MinHtlc,
-		MaxHtlcMsat:      policy.MaxHtlcMsat,
-		FeeBaseMsat:      policy.FeeBaseMsat,
-		FeeRateMilliMsat: policy.FeeRateMilliMsat,
-		Disabled:         policy.Disabled,
-		LastUpdate:       time.Unix(int64(policy.LastUpdate), 0),
+		TimeLockDelta:      policy.TimeLockDelta,
+		MinHtlcMsat:        policy.MinHtlc,
+		MaxHtlcMsat:        policy.MaxHtlcMsat,
+		FeeBaseMsat:        policy.FeeBaseMsat,
+		FeeRateMilliMsat:   policy.FeeRateMilliMsat,
+		Disabled:           policy.Disabled,
+		LastUpdate:         time.Unix(int64(policy.LastUpdate), 0),
+		InboundBaseFeeMsat: policy.InboundFeeBaseMsat,
+		InboundFeeRatePPM:  policy.InboundFeeRateMilliMsat,
 	}
 }
 
