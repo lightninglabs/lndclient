@@ -70,7 +70,6 @@ func WithRemoteReserve(reserve uint64) OpenChannelOption {
 	return func(r *lnrpc.OpenChannelRequest) {
 		r.RemoteChanReserveSat = reserve
 	}
-
 }
 
 // LightningClient exposes base lightning functionality.
@@ -839,6 +838,9 @@ type Peer struct {
 
 	// Received is the total amount we have received from this peer.
 	Received btcutil.Amount
+
+	// Features is the set of the features supported by the node.
+	Features *lnwire.FeatureVector
 }
 
 // ChannelBalance contains information about our channel balances.
@@ -3358,6 +3360,18 @@ func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
 
 		pingTime := time.Microsecond * time.Duration(peer.PingTime)
 
+		var featureBits []lnwire.FeatureBit
+		for rpcBit := range peer.Features {
+			featureBits = append(
+				featureBits, lnwire.FeatureBit(rpcBit),
+			)
+		}
+
+		peerFeatures := lnwire.NewFeatureVector(
+			lnwire.NewRawFeatureVector(featureBits...),
+			lnwire.Features,
+		)
+
 		peers[i] = Peer{
 			Pubkey:        pk,
 			Address:       peer.Address,
@@ -3367,6 +3381,7 @@ func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
 			PingTime:      pingTime,
 			Sent:          btcutil.Amount(peer.SatSent),
 			Received:      btcutil.Amount(peer.SatRecv),
+			Features:      peerFeatures,
 		}
 	}
 
