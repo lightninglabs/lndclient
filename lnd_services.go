@@ -78,6 +78,14 @@ var (
 	}
 )
 
+// ServiceClient is an interface that all lnd service clients need to implement.
+type ServiceClient[T any] interface {
+	// RawClientWithMacAuth returns a context with the proper macaroon
+	// authentication, the default RPC timeout, and the raw client.
+	RawClientWithMacAuth(parentCtx context.Context) (context.Context,
+		time.Duration, T)
+}
+
 // LndServicesConfig holds all configuration settings that are needed to connect
 // to an lnd node.
 type LndServicesConfig struct {
