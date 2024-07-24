@@ -14,6 +14,8 @@ import (
 
 // ChainKitClient exposes chain functionality.
 type ChainKitClient interface {
+	ServiceClient[chainrpc.ChainKitClient]
+
 	// GetBlock returns a block given the corresponding block hash.
 	GetBlock(ctx context.Context, hash chainhash.Hash) (*wire.MsgBlock,
 		error)
@@ -41,6 +43,10 @@ type chainKitClient struct {
 	wg sync.WaitGroup
 }
 
+// A compile time check to ensure that chainKitClient implements the
+// ChainKitClient interface.
+var _ ChainKitClient = (*chainKitClient)(nil)
+
 func newChainKitClient(conn grpc.ClientConnInterface,
 	chainMac serializedMacaroon, timeout time.Duration) *chainKitClient {
 
@@ -53,6 +59,15 @@ func newChainKitClient(conn grpc.ClientConnInterface,
 
 func (s *chainKitClient) WaitForFinished() {
 	s.wg.Wait()
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (s *chainKitClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	chainrpc.ChainKitClient) {
+
+	return s.chainMac.WithMacaroonAuth(parentCtx), s.timeout, s.client
 }
 
 // GetBlock returns a block given the corresponding block hash.
