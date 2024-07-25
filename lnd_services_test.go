@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
@@ -16,6 +17,15 @@ import (
 type mockVersioner struct {
 	version *verrpc.Version
 	err     error
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (m *mockVersioner) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	verrpc.VersionerClient) {
+
+	return parentCtx, 0, nil
 }
 
 func (m *mockVersioner) GetVersion(_ context.Context) (*verrpc.Version, error) {

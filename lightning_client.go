@@ -74,6 +74,8 @@ func WithRemoteReserve(reserve uint64) OpenChannelOption {
 
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
+	ServiceClient[lnrpc.LightningClient]
+
 	PayInvoice(ctx context.Context, invoice string,
 		maxFee btcutil.Amount,
 		outgoingChannel *uint64) chan PaymentResult
@@ -1323,6 +1325,10 @@ type lightningClient struct {
 	adminMac serializedMacaroon
 }
 
+// A compile time check to ensure that lightningClient implements the
+// LightningClient interface.
+var _ LightningClient = (*lightningClient)(nil)
+
 func newLightningClient(conn grpc.ClientConnInterface, timeout time.Duration,
 	params *chaincfg.Params, adminMac serializedMacaroon) *lightningClient {
 
@@ -1344,6 +1350,15 @@ type PaymentResult struct {
 
 func (s *lightningClient) WaitForFinished() {
 	s.wg.Wait()
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (s *lightningClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	lnrpc.LightningClient) {
+
+	return s.adminMac.WithMacaroonAuth(parentCtx), s.timeout, s.client
 }
 
 // WalletBalance returns a summary of the node's wallet balance.

@@ -18,6 +18,8 @@ import (
 
 // SignerClient exposes sign functionality.
 type SignerClient interface {
+	ServiceClient[signrpc.SignerClient]
+
 	// SignOutputRaw is a method that can be used to generate a signature
 	// for a set of inputs/outputs to a transaction. Each request specifies
 	// details concerning how the outputs should be signed, which keys they
@@ -190,6 +192,10 @@ type signerClient struct {
 	timeout   time.Duration
 }
 
+// A compile time check to ensure that signerClient implements the SignerClient
+// interface.
+var _ SignerClient = (*signerClient)(nil)
+
 func newSignerClient(conn grpc.ClientConnInterface,
 	signerMac serializedMacaroon, timeout time.Duration) *signerClient {
 
@@ -198,6 +204,15 @@ func newSignerClient(conn grpc.ClientConnInterface,
 		signerMac: signerMac,
 		timeout:   timeout,
 	}
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (s *signerClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	signrpc.SignerClient) {
+
+	return s.signerMac.WithMacaroonAuth(parentCtx), s.timeout, s.client
 }
 
 func marshallSignDescriptors(

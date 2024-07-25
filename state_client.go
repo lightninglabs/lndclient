@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc"
@@ -11,6 +12,8 @@ import (
 
 // StateClient exposes base lightning functionality.
 type StateClient interface {
+	ServiceClient[lnrpc.StateClient]
+
 	// SubscribeState subscribes to the current state of the wallet.
 	SubscribeState(ctx context.Context) (chan WalletState, chan error,
 		error)
@@ -90,23 +93,38 @@ func (s WalletState) ReadyForGetInfo() bool {
 type stateClient struct {
 	client      lnrpc.StateClient
 	readonlyMac serializedMacaroon
+	timeout     time.Duration
 
 	wg sync.WaitGroup
 }
 
+// A compile time check to ensure that stateClient implements the StateClient
+// interface.
+var _ StateClient = (*stateClient)(nil)
+
 // newStateClient returns a new stateClient.
 func newStateClient(conn grpc.ClientConnInterface,
-	readonlyMac serializedMacaroon) *stateClient {
+	readonlyMac serializedMacaroon, timeout time.Duration) *stateClient {
 
 	return &stateClient{
 		client:      lnrpc.NewStateClient(conn),
 		readonlyMac: readonlyMac,
+		timeout:     timeout,
 	}
 }
 
 // WaitForFinished waits until all state subscriptions have finished.
 func (s *stateClient) WaitForFinished() {
 	s.wg.Wait()
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (s *stateClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	lnrpc.StateClient) {
+
+	return s.readonlyMac.WithMacaroonAuth(parentCtx), s.timeout, s.client
 }
 
 // SubscribeState subscribes to the current state of the wallet.

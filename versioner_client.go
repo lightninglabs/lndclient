@@ -12,6 +12,8 @@ import (
 
 // VersionerClient exposes the version of lnd.
 type VersionerClient interface {
+	ServiceClient[verrpc.VersionerClient]
+
 	// GetVersion returns the version and build information of the lnd
 	// daemon.
 	GetVersion(ctx context.Context) (*verrpc.Version, error)
@@ -23,6 +25,10 @@ type versionerClient struct {
 	timeout     time.Duration
 }
 
+// A compile time check to ensure that versionerClient implements the
+// VersionerClient interface.
+var _ VersionerClient = (*versionerClient)(nil)
+
 func newVersionerClient(conn grpc.ClientConnInterface,
 	readonlyMac serializedMacaroon, timeout time.Duration) *versionerClient {
 
@@ -31,6 +37,15 @@ func newVersionerClient(conn grpc.ClientConnInterface,
 		readonlyMac: readonlyMac,
 		timeout:     timeout,
 	}
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (v *versionerClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	verrpc.VersionerClient) {
+
+	return v.readonlyMac.WithMacaroonAuth(parentCtx), v.timeout, v.client
 }
 
 // GetVersion returns the version and build information of the lnd
@@ -47,7 +62,7 @@ func (v *versionerClient) GetVersion(ctx context.Context) (*verrpc.Version,
 	return v.client.GetVersion(rpcCtx, &verrpc.VersionRequest{})
 }
 
-// VersionString returns a nice, human readable string of a version returned by
+// VersionString returns a nice, human-readable string of a version returned by
 // the VersionerClient, including all build tags.
 func VersionString(version *verrpc.Version) string {
 	short := VersionStringShort(version)
@@ -55,7 +70,7 @@ func VersionString(version *verrpc.Version) string {
 	return fmt.Sprintf("%s, build tags '%s'", short, enabledTags)
 }
 
-// VersionStringShort returns a nice, human readable string of a version
+// VersionStringShort returns a nice, human-readable string of a version
 // returned by the VersionerClient.
 func VersionStringShort(version *verrpc.Version) string {
 	versionStr := fmt.Sprintf(
