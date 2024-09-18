@@ -69,7 +69,7 @@ func MacaroonRecipe(c LightningClient, packages []string) ([]MacaroonPermission,
 		// and what methods it declares.
 		ifaceType := reflect.TypeOf(ifacePtr).Elem()
 		serverName := strings.ReplaceAll(ifaceType.Name(), "Client", "")
-		for i := 0; i < ifaceType.NumMethod(); i++ {
+		for i := range ifaceType.NumMethod() {
 			// The methods in lndclient might be called slightly
 			// differently. Rename according to our rename mapping
 			// table.

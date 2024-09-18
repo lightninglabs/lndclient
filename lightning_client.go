@@ -882,7 +882,7 @@ func newNode(lnNode *lnrpc.LightningNode) (*Node, error) {
 		)
 	}
 
-	for i := 0; i < len(lnNode.Addresses); i++ {
+	for i := range lnNode.Addresses {
 		node.Addresses[i] = lnNode.Addresses[i].Addr
 	}
 
