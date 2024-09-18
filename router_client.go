@@ -298,6 +298,10 @@ type SendPaymentRequest struct {
 
 	// AMP is set to true if the payment should be an AMP payment.
 	AMP bool
+
+	// FirstHopCustomRecords holds the custom TLV records should be sent to
+	// the first hop as part of the wire message.
+	FirstHopCustomRecords map[uint64][]byte
 }
 
 // InterceptedHtlc contains information about a htlc that was intercepted in
@@ -408,15 +412,16 @@ func (r *routerClient) SendPayment(ctx context.Context,
 
 	rpcCtx := r.routerKitMac.WithMacaroonAuth(ctx)
 	rpcReq := &routerrpc.SendPaymentRequest{
-		FeeLimitSat:      int64(request.MaxFee),
-		FeeLimitMsat:     int64(request.MaxFeeMsat),
-		PaymentRequest:   request.Invoice,
-		TimeoutSeconds:   int32(request.Timeout.Seconds()),
-		MaxParts:         request.MaxParts,
-		OutgoingChanIds:  request.OutgoingChanIds,
-		AllowSelfPayment: request.AllowSelfPayment,
-		Amp:              request.AMP,
-		TimePref:         request.TimePref,
+		FeeLimitSat:           int64(request.MaxFee),
+		FeeLimitMsat:          int64(request.MaxFeeMsat),
+		PaymentRequest:        request.Invoice,
+		TimeoutSeconds:        int32(request.Timeout.Seconds()),
+		MaxParts:              request.MaxParts,
+		OutgoingChanIds:       request.OutgoingChanIds,
+		AllowSelfPayment:      request.AllowSelfPayment,
+		Amp:                   request.AMP,
+		TimePref:              request.TimePref,
+		FirstHopCustomRecords: request.FirstHopCustomRecords,
 	}
 	if request.MaxCltv != nil {
 		rpcReq.CltvLimit = *request.MaxCltv
