@@ -63,6 +63,8 @@ type InvoiceHtlcModifyHandler func(context.Context,
 
 // InvoicesClient exposes invoice functionality.
 type InvoicesClient interface {
+	ServiceClient[invoicesrpc.InvoicesClient]
+
 	SubscribeSingleInvoice(ctx context.Context, hash lntypes.Hash) (
 		<-chan InvoiceUpdate, <-chan error, error)
 
@@ -97,6 +99,10 @@ type invoicesClient struct {
 	wg         sync.WaitGroup
 }
 
+// A compile time check to ensure that invoicesClient implements the
+// InvoicesClient interface.
+var _ InvoicesClient = (*invoicesClient)(nil)
+
 func newInvoicesClient(conn grpc.ClientConnInterface,
 	invoiceMac serializedMacaroon, timeout time.Duration) *invoicesClient {
 
@@ -114,6 +120,15 @@ func (s *invoicesClient) WaitForFinished() {
 	})
 
 	s.wg.Wait()
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (s *invoicesClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	invoicesrpc.InvoicesClient) {
+
+	return s.invoiceMac.WithMacaroonAuth(parentCtx), s.timeout, s.client
 }
 
 func (s *invoicesClient) SettleInvoice(ctx context.Context,

@@ -66,6 +66,8 @@ func WithUnspentUnconfirmedOnly() ListUnspentOption {
 
 // WalletKitClient exposes wallet functionality.
 type WalletKitClient interface {
+	ServiceClient[walletrpc.WalletKitClient]
+
 	// ListUnspent returns a list of all utxos spendable by the wallet with
 	// a number of confirmations between the specified minimum and maximum.
 	ListUnspent(ctx context.Context, minConfs, maxConfs int32,
@@ -214,7 +216,7 @@ type walletKitClient struct {
 	params       *chaincfg.Params
 }
 
-// A compile-time constraint to ensure walletKitclient satisfies the
+// A compile time check to ensure that  walletKitClient implements the
 // WalletKitClient interface.
 var _ WalletKitClient = (*walletKitClient)(nil)
 
@@ -228,6 +230,15 @@ func newWalletKitClient(conn grpc.ClientConnInterface,
 		timeout:      timeout,
 		params:       chainParams,
 	}
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (m *walletKitClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	walletrpc.WalletKitClient) {
+
+	return m.walletKitMac.WithMacaroonAuth(parentCtx), m.timeout, m.client
 }
 
 // ListUnspent returns a list of all utxos spendable by the wallet with a number
