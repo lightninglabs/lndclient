@@ -37,11 +37,11 @@ var (
 	// required in lnd to get all functionality implemented in lndclient.
 	// Users can provide their own, specific version if needed. If only a
 	// subset of the lndclient functionality is needed, the required build
-	// tags can be adjusted accordingly. This default will be used as a fall
-	// back version if none is specified in the configuration.
+	// tags can be adjusted accordingly. This default will be used as a
+	// fallback version if none is specified in the configuration.
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor:  0,
-		AppMinor:  17,
+		AppMinor:  18,
 		AppPatch:  4,
 		BuildTags: DefaultBuildTags,
 	}
