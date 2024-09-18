@@ -337,6 +337,10 @@ type InterceptedHtlc struct {
 
 	// OnionBlob is the onion blob for the next hop.
 	OnionBlob []byte
+
+	// InWireCustomRecords are custom records sent by the sender that were
+	// only present in the wire message and not the onion itself.
+	InWireCustomRecords map[uint64][]byte
 }
 
 // HtlcInterceptHandler is a function signature for handling code for htlc
@@ -360,6 +364,10 @@ const (
 	// InterceptorActionResume indicates that an intercepted hltc should be
 	// resumed as normal.
 	InterceptorActionResume
+
+	// InterceptorActionResumeModified indicates that an intercepted hltc
+	// should be resumed as normal, but with modifications.
+	InterceptorActionResumeModified
 )
 
 // InterceptedHtlcResponse contains the actions that must be taken for an
@@ -372,6 +380,19 @@ type InterceptedHtlcResponse struct {
 	// Action is the action that should be taken for the htlc that is
 	// intercepted.
 	Action InterceptorAction
+
+	// IncomingAmount is the amount that should be used to validate the
+	// incoming htlc. This might be different from the actual HTLC amount
+	// for custom channels.
+	IncomingAmount lnwire.MilliSatoshi
+
+	// OutgoingAmount is the amount that should be set on the HTLC that is
+	// forwarded.
+	OutgoingAmount lnwire.MilliSatoshi
+
+	// CustomRecords are the custom records that should be added to the
+	// outgoing/forwarded HTLC.
+	CustomRecords map[uint64][]byte
 }
 
 // routerClient is a wrapper around the generated routerrpc proxy.
@@ -790,6 +811,7 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 			chanOut := lnwire.NewShortChanIDFromInt(
 				request.OutgoingRequestedChanId,
 			)
+			inWireCustomRecords := request.InWireCustomRecords
 
 			req := InterceptedHtlc{
 				IncomingCircuitKey: invpkg.CircuitKey{
@@ -808,6 +830,7 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 				OutgoingChannelID:    chanOut,
 				CustomRecords:        request.CustomRecords,
 				OnionBlob:            request.OnionBlob,
+				InWireCustomRecords:  inWireCustomRecords,
 			}
 
 			// Try to send our interception request, failing on
@@ -906,6 +929,14 @@ func rpcInterceptorResponse(request InterceptedHtlc,
 
 	case InterceptorActionResume:
 		rpcResp.Action = routerrpc.ResolveHoldForwardAction_RESUME
+
+	case InterceptorActionResumeModified:
+		//nolint:lll
+		rpcResp.Action = routerrpc.ResolveHoldForwardAction_RESUME_MODIFIED
+
+		rpcResp.InAmountMsat = uint64(response.IncomingAmount)
+		rpcResp.OutAmountMsat = uint64(response.OutgoingAmount)
+		rpcResp.OutWireCustomRecords = response.CustomRecords
 
 	default:
 		return nil, fmt.Errorf("unknown action: %v", response.Action)
