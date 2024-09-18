@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc"
@@ -90,17 +91,19 @@ func (s WalletState) ReadyForGetInfo() bool {
 type stateClient struct {
 	client      lnrpc.StateClient
 	readonlyMac serializedMacaroon
+	timeout     time.Duration
 
 	wg sync.WaitGroup
 }
 
 // newStateClient returns a new stateClient.
 func newStateClient(conn grpc.ClientConnInterface,
-	readonlyMac serializedMacaroon) *stateClient {
+	readonlyMac serializedMacaroon, timeout time.Duration) *stateClient {
 
 	return &stateClient{
 		client:      lnrpc.NewStateClient(conn),
 		readonlyMac: readonlyMac,
+		timeout:     timeout,
 	}
 }
 
