@@ -880,6 +880,22 @@
                 }
             ]
         },
+        "/routerrpc.Router/XAddLocalChanAlias": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
+        "/routerrpc.Router/XDeleteLocalChanAlias": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/signrpc.Signer/ComputeInputScript": {
             "permissions": [
                 {

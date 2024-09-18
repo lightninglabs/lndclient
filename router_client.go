@@ -73,6 +73,20 @@ type RouterClient interface {
 	// (enabled, disabled, or auto).
 	UpdateChanStatus(ctx context.Context,
 		channel *wire.OutPoint, action routerrpc.ChanStatusAction) error
+
+	// XAddLocalChanAlias is an experimental method that allows the caller
+	// to add a local channel alias to the router. This is only a locally
+	// stored alias, and will not be communicated to the channel peer via
+	// any message. Therefore, routing over such an alias will only work if
+	// the peer also calls this same RPC on their end.
+	XAddLocalChanAlias(ctx context.Context, alias,
+		baseScid lnwire.ShortChannelID) error
+
+	// XDeleteLocalChanAlias is an experimental method that allows the
+	// caller to remove a local channel alias in the router. The deletion
+	// will not be communicated to the channel peer via any message.
+	XDeleteLocalChanAlias(ctx context.Context, alias,
+		baseScid lnwire.ShortChannelID) error
 }
 
 // PaymentStatus describe the state of a payment.
@@ -1046,6 +1060,58 @@ func (r *routerClient) UpdateChanStatus(ctx context.Context,
 				OutputIndex: channel.Index,
 			},
 			Action: action,
+		},
+	)
+	return err
+}
+
+// XAddLocalChanAlias is an experimental method that allows the caller
+// to add a local channel alias to the router. This is only a locally
+// stored alias, and will not be communicated to the channel peer via
+// any message. Therefore, routing over such an alias will only work if
+// the peer also calls this same RPC on their end.
+func (r *routerClient) XAddLocalChanAlias(ctx context.Context, alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.XAddLocalChanAliases(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.AddAliasesRequest{
+			AliasMaps: []*lnrpc.AliasMap{
+				{
+					BaseScid: baseScid.ToUint64(),
+					Aliases: []uint64{
+						alias.ToUint64(),
+					},
+				},
+			},
+		},
+	)
+	return err
+}
+
+// XDeleteLocalChanAlias is an experimental method that allows the
+// caller to remove a local channel alias in the router. The deletion
+// will not be communicated to the channel peer via any message.
+func (r *routerClient) XDeleteLocalChanAlias(ctx context.Context, alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.XDeleteLocalChanAliases(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.DeleteAliasesRequest{
+			AliasMaps: []*lnrpc.AliasMap{
+				{
+					BaseScid: baseScid.ToUint64(),
+					Aliases: []uint64{
+						alias.ToUint64(),
+					},
+				},
+			},
 		},
 	)
 	return err
