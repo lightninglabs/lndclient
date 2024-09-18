@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -43,6 +44,12 @@ var (
 		"OpenChannelStream":      "OpenChannel",
 		"ListSweepsVerbose":      "ListSweeps",
 	}
+
+	// ignores is a list of method names on the client implementations that
+	// we don't need to check macaroon permissions for.
+	ignores = []string{
+		"RawClientWithMacAuth",
+	}
 )
 
 // MacaroonRecipe returns a list of macaroon permissions that is required to use
@@ -77,6 +84,10 @@ func MacaroonRecipe(c LightningClient, packages []string) ([]MacaroonPermission,
 			rename, ok := renames[methodName]
 			if ok {
 				methodName = rename
+			}
+
+			if slices.Contains(ignores, methodName) {
+				continue
 			}
 
 			// The full RPC URI is /package.Service/MethodName.

@@ -31,6 +31,8 @@ var ErrRouterShuttingDown = errors.New("router shutting down")
 
 // RouterClient exposes payment functionality.
 type RouterClient interface {
+	ServiceClient[routerrpc.RouterClient]
+
 	// SendPayment attempts to route a payment to the final destination. The
 	// call returns a payment update stream and an error stream.
 	SendPayment(ctx context.Context, request SendPaymentRequest) (
@@ -412,6 +414,10 @@ type routerClient struct {
 	wg           sync.WaitGroup
 }
 
+// A compile time check to ensure that routerClient implements the RouterClient
+// interface.
+var _ RouterClient = (*routerClient)(nil)
+
 func newRouterClient(conn grpc.ClientConnInterface,
 	routerKitMac serializedMacaroon, timeout time.Duration) *routerClient {
 
@@ -431,6 +437,15 @@ func (r *routerClient) WaitForFinished() {
 	})
 
 	r.wg.Wait()
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (r *routerClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	routerrpc.RouterClient) {
+
+	return r.routerKitMac.WithMacaroonAuth(parentCtx), r.timeout, r.client
 }
 
 // SendPayment attempts to route a payment to the final destination. The call
