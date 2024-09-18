@@ -152,6 +152,10 @@ type LndServicesConfig struct {
 	// calls to lnd. If this value is not set, it will default to 30
 	// seconds.
 	RPCTimeout time.Duration
+
+	// ChainSyncPollInterval is the interval in which we poll the GetInfo
+	// call to find out if lnd is fully synced to its chain backend.
+	ChainSyncPollInterval time.Duration
 }
 
 // DialerFunc is a function that is used as grpc.WithContextDialer().
@@ -285,7 +289,8 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		readonlyMac = serializedMacaroon(cfg.CustomMacaroonHex)
 	} else {
 		readonlyMac, err = loadMacaroon(
-			macaroonDir, string(ReadOnlyServiceMac), cfg.CustomMacaroonPath,
+			macaroonDir, string(ReadOnlyServiceMac),
+			cfg.CustomMacaroonPath,
 		)
 		if err != nil {
 			return nil, err
@@ -295,6 +300,10 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	timeout := defaultRPCTimeout
 	if cfg.RPCTimeout != 0 {
 		timeout = cfg.RPCTimeout
+	}
+
+	if cfg.ChainSyncPollInterval == 0 {
+		cfg.ChainSyncPollInterval = chainSyncPollInterval
 	}
 
 	basicClient := lnrpc.NewLightningClient(conn)
@@ -413,7 +422,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		log.Infof("Waiting for lnd to be fully synced to its chain " +
 			"backend, this might take a while")
 
-		err := services.waitForChainSync(cfg.CallerCtx, timeout)
+		err := services.waitForChainSync(
+			cfg.CallerCtx, timeout, cfg.ChainSyncPollInterval,
+		)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("error waiting for chain to "+
@@ -453,7 +464,7 @@ func (s *GrpcLndServices) Close() {
 // synced to its chain backend. This could theoretically take hours if the
 // initial block download is still in progress.
 func (s *GrpcLndServices) waitForChainSync(ctx context.Context,
-	timeout time.Duration) error {
+	timeout, pollInterval time.Duration) error {
 
 	mainCtx := ctx
 	if mainCtx == nil {
@@ -488,7 +499,7 @@ func (s *GrpcLndServices) waitForChainSync(ctx context.Context,
 
 			select {
 			// If we're not yet done, let's now wait a few seconds.
-			case <-time.After(chainSyncPollInterval):
+			case <-time.After(pollInterval):
 
 			// If the user cancels the context, we should also
 			// abort the wait.
