@@ -307,7 +307,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	}
 
 	basicClient := lnrpc.NewLightningClient(conn)
-	stateClient := newStateClient(conn, readonlyMac)
+	stateClient := newStateClient(conn, readonlyMac, timeout)
 	versionerClient := newVersionerClient(conn, readonlyMac, timeout)
 
 	cleanupConn := func() {
