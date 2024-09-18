@@ -144,6 +144,14 @@
                 }
             ]
         },
+        "/invoicesrpc.Invoices/HtlcModifier": {
+            "permissions": [
+                {
+                    "entity": "invoices",
+                    "action": "write"
+                }
+            ]
+        },
         "/lnrpc.Lightning/AbandonChannel": {
             "permissions": [
                 {
