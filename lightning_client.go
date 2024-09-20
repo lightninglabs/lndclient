@@ -72,6 +72,13 @@ func WithRemoteReserve(reserve uint64) OpenChannelOption {
 	}
 }
 
+// WithRemoteMaxHtlc limits the number of htlcs the remote party can offer.
+func WithRemoteMaxHtlc(maxHtlc uint32) OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.RemoteMaxHtlcs = maxHtlc
+	}
+}
+
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
 	PayInvoice(ctx context.Context, invoice string,
