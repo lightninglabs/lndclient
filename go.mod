@@ -1,15 +1,15 @@
 module github.com/lightninglabs/lndclient
 
 require (
-	github.com/btcsuite/btcd v0.24.2-beta.rc1.0.20240625142744-cc26860b4026
-	github.com/btcsuite/btcd/btcec/v2 v2.3.3
+	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53
+	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
 	github.com/btcsuite/btcwallet v0.16.10-0.20240809133323-7d3434c65ae2
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.3
-	github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20240919095711-611852fd34b1
+	github.com/lightningnetwork/lnd v0.18.3-beta.rc3.0.20241011124628-ca3bde901eb8
 	github.com/lightningnetwork/lnd/kvdb v1.4.10
 	github.com/stretchr/testify v1.9.0
 	google.golang.org/grpc v1.59.0
@@ -90,7 +90,6 @@ require (
 	github.com/juju/utils/v3 v3.0.0-20220203023959-c3fbc78a33b0 // indirect
 	github.com/juju/version/v2 v2.0.0-20220204124744-fc9915e3d935 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
-	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
 	github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd // indirect
