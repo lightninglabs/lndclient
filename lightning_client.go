@@ -1146,6 +1146,10 @@ func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
 		commitmentType = new(lnwallet.CommitmentType)
 		*commitmentType = lnwallet.CommitmentTypeSimpleTaproot
 
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeSimpleTaprootOverlay
+
 	default:
 		return nil, fmt.Errorf("unhandled commitment type %v",
 			req.CommitmentType)
