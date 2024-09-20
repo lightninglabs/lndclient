@@ -284,6 +284,13 @@ type SendPaymentRequest struct {
 
 	// AMP is set to true if the payment should be an AMP payment.
 	AMP bool
+
+	// Cancelable controls if the payment can be interrupted manually by
+	// canceling the payment context, even before the payment timeout is
+	// reached. Note that the payment may still succeed after cancellation,
+	// as in-flight attempts can still settle afterward. Canceling will only
+	// prevent further attempts from being sent.
+	Cancelable bool
 }
 
 // InterceptedHtlc contains information about a htlc that was intercepted in
@@ -403,6 +410,7 @@ func (r *routerClient) SendPayment(ctx context.Context,
 		AllowSelfPayment: request.AllowSelfPayment,
 		Amp:              request.AMP,
 		TimePref:         request.TimePref,
+		Cancelable:       request.Cancelable,
 	}
 	if request.MaxCltv != nil {
 		rpcReq.CltvLimit = *request.MaxCltv
