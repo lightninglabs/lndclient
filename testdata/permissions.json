@@ -144,6 +144,14 @@
                 }
             ]
         },
+        "/invoicesrpc.Invoices/HtlcModifier": {
+            "permissions": [
+                {
+                    "entity": "invoices",
+                    "action": "write"
+                }
+            ]
+        },
         "/lnrpc.Lightning/AbandonChannel": {
             "permissions": [
                 {
@@ -873,6 +881,22 @@
             ]
         },
         "/routerrpc.Router/XImportMissionControl": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
+        "/routerrpc.Router/XAddLocalChanAlias": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
+        "/routerrpc.Router/XDeleteLocalChanAlias": {
             "permissions": [
                 {
                     "entity": "offchain",

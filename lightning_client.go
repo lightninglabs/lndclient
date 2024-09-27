@@ -64,8 +64,25 @@ func WithScid() OpenChannelOption {
 	}
 }
 
+// WithRemoteReserve signals that the channel open should set a remote reserve
+// amount.
+func WithRemoteReserve(reserve uint64) OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.RemoteChanReserveSat = reserve
+	}
+}
+
+// WithRemoteMaxHtlc limits the number of htlcs the remote party can offer.
+func WithRemoteMaxHtlc(maxHtlc uint32) OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.RemoteMaxHtlcs = maxHtlc
+	}
+}
+
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
+	ServiceClient[lnrpc.LightningClient]
+
 	PayInvoice(ctx context.Context, invoice string,
 		maxFee btcutil.Amount,
 		outgoingChannel *uint64) chan PaymentResult
@@ -424,6 +441,10 @@ type ChannelInfo struct {
 	// AliasScids contains a list of alias short channel identifiers that
 	// may be used for this channel. This array can be empty.
 	AliasScids []uint64
+
+	// CustomChannelData is an optional field that can be used to store
+	// data for custom channels.
+	CustomChannelData []byte
 }
 
 func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
@@ -465,8 +486,9 @@ func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 		RemoteConstraints: newChannelConstraint(
 			channel.RemoteConstraints,
 		),
-		ZeroConf:     channel.ZeroConf,
-		ZeroConfScid: channel.ZeroConfConfirmedScid,
+		ZeroConf:          channel.ZeroConf,
+		ZeroConfScid:      channel.ZeroConfConfirmedScid,
+		CustomChannelData: channel.CustomChannelData,
 	}
 
 	chanInfo.AliasScids = make([]uint64, len(channel.AliasScids))
@@ -825,6 +847,9 @@ type Peer struct {
 
 	// Received is the total amount we have received from this peer.
 	Received btcutil.Amount
+
+	// Features is the set of the features supported by the node.
+	Features *lnwire.FeatureVector
 }
 
 // ChannelBalance contains information about our channel balances.
@@ -834,6 +859,10 @@ type ChannelBalance struct {
 
 	// PendingBalance is the sum of all pending channel balances.
 	PendingBalance btcutil.Amount
+
+	// CustomChannelData is an optional field that can be used to store
+	// data for custom channels.
+	CustomChannelData []byte
 }
 
 // Node describes a node in the network.
@@ -882,7 +911,7 @@ func newNode(lnNode *lnrpc.LightningNode) (*Node, error) {
 		)
 	}
 
-	for i := 0; i < len(lnNode.Addresses); i++ {
+	for i := range lnNode.Addresses {
 		node.Addresses[i] = lnNode.Addresses[i].Addr
 	}
 
@@ -1303,6 +1332,10 @@ type lightningClient struct {
 	adminMac serializedMacaroon
 }
 
+// A compile time check to ensure that lightningClient implements the
+// LightningClient interface.
+var _ LightningClient = (*lightningClient)(nil)
+
 func newLightningClient(conn grpc.ClientConnInterface, timeout time.Duration,
 	params *chaincfg.Params, adminMac serializedMacaroon) *lightningClient {
 
@@ -1324,6 +1357,15 @@ type PaymentResult struct {
 
 func (s *lightningClient) WaitForFinished() {
 	s.wg.Wait()
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (s *lightningClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	lnrpc.LightningClient) {
+
+	return s.adminMac.WithMacaroonAuth(parentCtx), s.timeout, s.client
 }
 
 // WalletBalance returns a summary of the node's wallet balance.
@@ -1679,6 +1721,10 @@ type InvoiceHtlc struct {
 
 	// CustomRecords is list of the custom tlv records.
 	CustomRecords map[uint64][]byte
+
+	// CustomChannelData is an optional field that can be used to store
+	// data for custom channels.
+	CustomChannelData []byte
 }
 
 // PendingHtlc represents a HTLC that is currently pending on some channel.
@@ -1777,10 +1823,13 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 
 	for i, htlc := range resp.Htlcs {
 		invoiceHtlc := InvoiceHtlc{
-			ChannelID:     lnwire.NewShortChanIDFromInt(htlc.ChanId),
-			Amount:        lnwire.MilliSatoshi(htlc.AmtMsat),
-			CustomRecords: htlc.CustomRecords,
-			State:         htlc.State,
+			ChannelID: lnwire.NewShortChanIDFromInt(
+				htlc.ChanId,
+			),
+			Amount:            lnwire.MilliSatoshi(htlc.AmtMsat),
+			CustomRecords:     htlc.CustomRecords,
+			State:             htlc.State,
+			CustomChannelData: htlc.CustomChannelData,
 		}
 
 		if htlc.AcceptTime != 0 {
@@ -1971,6 +2020,10 @@ type PendingChannel struct {
 
 	// ChannelInitiator indicates which party opened the channel.
 	ChannelInitiator Initiator
+
+	// CustomChannelData is an optional field that can be used to store
+	// data for custom channels.
+	CustomChannelData []byte
 }
 
 // NewPendingChannel creates a pending channel from the rpc struct.
@@ -1993,12 +2046,13 @@ func NewPendingChannel(channel *lnrpc.PendingChannelsResponse_PendingChannel) (
 	}
 
 	return &PendingChannel{
-		ChannelPoint:     outpoint,
-		PubKeyBytes:      peer,
-		Capacity:         btcutil.Amount(channel.Capacity),
-		LocalBalance:     btcutil.Amount(channel.LocalBalance),
-		RemoteBalance:    btcutil.Amount(channel.RemoteBalance),
-		ChannelInitiator: initiator,
+		ChannelPoint:      outpoint,
+		PubKeyBytes:       peer,
+		Capacity:          btcutil.Amount(channel.Capacity),
+		LocalBalance:      btcutil.Amount(channel.LocalBalance),
+		RemoteBalance:     btcutil.Amount(channel.RemoteBalance),
+		ChannelInitiator:  initiator,
+		CustomChannelData: channel.CustomChannelData,
 	}, nil
 }
 
@@ -2473,6 +2527,10 @@ type Payment struct {
 
 	// SequenceNumber is a unique id for each payment.
 	SequenceNumber uint64
+
+	// FirstHopCustomRecords holds the custom TLV records that were sent to
+	// the first hop as part of the wire message.
+	FirstHopCustomRecords map[uint64][]byte
 }
 
 // ListPaymentsRequest contains the request parameters for a paginated
@@ -2540,9 +2598,14 @@ func (s *lightningClient) ListPayments(ctx context.Context,
 			PaymentRequest: payment.PaymentRequest,
 			Status:         status,
 			Htlcs:          payment.Htlcs,
-			Amount:         lnwire.MilliSatoshi(payment.ValueMsat),
-			Fee:            lnwire.MilliSatoshi(payment.FeeMsat),
-			SequenceNumber: payment.PaymentIndex,
+			Amount: lnwire.MilliSatoshi(
+				payment.ValueMsat,
+			),
+			Fee: lnwire.MilliSatoshi(
+				payment.FeeMsat,
+			),
+			SequenceNumber:        payment.PaymentIndex,
+			FirstHopCustomRecords: payment.FirstHopCustomRecords,
 		}
 
 		// Add our preimage if it is known.
@@ -3372,6 +3435,18 @@ func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
 
 		pingTime := time.Microsecond * time.Duration(peer.PingTime)
 
+		var featureBits []lnwire.FeatureBit
+		for rpcBit := range peer.Features {
+			featureBits = append(
+				featureBits, lnwire.FeatureBit(rpcBit),
+			)
+		}
+
+		peerFeatures := lnwire.NewFeatureVector(
+			lnwire.NewRawFeatureVector(featureBits...),
+			lnwire.Features,
+		)
+
 		peers[i] = Peer{
 			Pubkey:        pk,
 			Address:       peer.Address,
@@ -3381,6 +3456,7 @@ func (s *lightningClient) ListPeers(ctx context.Context) ([]Peer,
 			PingTime:      pingTime,
 			Sent:          btcutil.Amount(peer.SatSent),
 			Received:      btcutil.Amount(peer.SatRecv),
+			Features:      peerFeatures,
 		}
 	}
 
@@ -3454,8 +3530,11 @@ func (s *lightningClient) ChannelBalance(ctx context.Context) (*ChannelBalance,
 	}
 
 	return &ChannelBalance{
-		Balance:        btcutil.Amount(resp.Balance),            // nolint:staticcheck
-		PendingBalance: btcutil.Amount(resp.PendingOpenBalance), // nolint:staticcheck
+		//nolint:staticcheck
+		Balance: btcutil.Amount(resp.Balance),
+		//nolint:staticcheck
+		PendingBalance:    btcutil.Amount(resp.PendingOpenBalance),
+		CustomChannelData: resp.CustomChannelData,
 	}, nil
 }
 

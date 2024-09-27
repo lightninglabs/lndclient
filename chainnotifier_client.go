@@ -60,6 +60,8 @@ func WithReOrgChan(reOrgChan chan struct{}) NotifierOption {
 
 // ChainNotifierClient exposes base lightning functionality.
 type ChainNotifierClient interface {
+	ServiceClient[chainrpc.ChainNotifierClient]
+
 	RegisterBlockEpochNtfn(ctx context.Context) (
 		chan int32, chan error, error)
 
@@ -81,6 +83,10 @@ type chainNotifierClient struct {
 	wg sync.WaitGroup
 }
 
+// A compile time check to ensure that chainNotifierClient implements the
+// ChainNotifierClient interface.
+var _ ChainNotifierClient = (*chainNotifierClient)(nil)
+
 func newChainNotifierClient(conn grpc.ClientConnInterface,
 	chainMac serializedMacaroon, timeout time.Duration) *chainNotifierClient {
 
@@ -93,6 +99,15 @@ func newChainNotifierClient(conn grpc.ClientConnInterface,
 
 func (s *chainNotifierClient) WaitForFinished() {
 	s.wg.Wait()
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (s *chainNotifierClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	chainrpc.ChainNotifierClient) {
+
+	return s.chainMac.WithMacaroonAuth(parentCtx), s.timeout, s.client
 }
 
 func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
