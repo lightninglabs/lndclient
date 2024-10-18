@@ -54,6 +54,10 @@ type InvoiceHtlcModifyResponse struct {
 	// HTLC in case of custom channels. To not modify the amount and use the
 	// on-chain amount, set this to 0.
 	AmtPaid lnwire.MilliSatoshi
+
+	// CancelSet is a flag that indicates whether the HTLCs associated with
+	// the invoice should get cancelled.
+	CancelSet bool
 }
 
 // InvoiceHtlcModifyHandler is a function that handles an HTLC modification
@@ -379,7 +383,8 @@ func (s *invoicesClient) HtlcModifier(ctx context.Context,
 						ChanId: key.ChanID.ToUint64(),
 						HtlcId: key.HtlcID,
 					},
-					AmtPaid: &amtPaid,
+					AmtPaid:   &amtPaid,
+					CancelSet: resp.CancelSet,
 				}
 
 				if err := stream.Send(rpcResp); err != nil {
