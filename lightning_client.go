@@ -3230,6 +3230,10 @@ type RoutingPolicy struct {
 
 	// LastUpdate is the last update time for the edge policy.
 	LastUpdate time.Time
+
+	// CustomRecords is a set of feature id-value pairs that are used to
+	// advertise additional information about an edge.
+	CustomRecords map[uint64][]byte
 }
 
 // ChannelEdge holds the channel edge information and routing policies.
@@ -3272,6 +3276,7 @@ func getRoutingPolicy(policy *lnrpc.RoutingPolicy) *RoutingPolicy {
 		FeeRateMilliMsat: policy.FeeRateMilliMsat,
 		Disabled:         policy.Disabled,
 		LastUpdate:       time.Unix(int64(policy.LastUpdate), 0),
+		CustomRecords:    policy.CustomRecords,
 	}
 }
 
