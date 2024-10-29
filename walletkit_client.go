@@ -111,6 +111,10 @@ type WalletKitClient interface {
 	EstimateFeeRate(ctx context.Context,
 		confTarget int32) (chainfee.SatPerKWeight, error)
 
+	// MinRelayFee returns the current minimum relay fee based on our chain
+	// backend in sat/kw.
+	MinRelayFee(ctx context.Context) (chainfee.SatPerKWeight, error)
+
 	// ListSweeps returns a list of sweep transaction ids known to our node.
 	// Note that this function only looks up transaction ids, and does not
 	// query our wallet for the full set of transactions. If startHeight is
@@ -538,6 +542,25 @@ func (m *walletKitClient) EstimateFeeRate(ctx context.Context, confTarget int32)
 	}
 
 	return chainfee.SatPerKWeight(resp.SatPerKw), nil
+}
+
+// MinRelayFee returns the current minimum relay fee based on our chain backend
+// in sat/kw.
+func (m *walletKitClient) MinRelayFee(
+	ctx context.Context) (chainfee.SatPerKWeight, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+	resp, err := m.client.EstimateFee(rpcCtx, &walletrpc.EstimateFeeRequest{
+		ConfTarget: 6,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return chainfee.SatPerKWeight(resp.MinRelayFeeSatPerKw), nil
 }
 
 // ListSweeps returns a list of sweep transaction ids known to our node.
