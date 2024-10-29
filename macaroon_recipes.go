@@ -43,6 +43,7 @@ var (
 		"EstimateFeeToP2WSH":     "EstimateFee",
 		"OpenChannelStream":      "OpenChannel",
 		"ListSweepsVerbose":      "ListSweeps",
+		"MinRelayFee":            "EstimateFee",
 	}
 
 	// ignores is a list of method names on the client implementations that
