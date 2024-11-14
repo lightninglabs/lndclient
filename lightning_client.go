@@ -303,6 +303,11 @@ type LightningClient interface {
 	// from the signature.
 	VerifyMessage(ctx context.Context, data []byte, signature string) (bool,
 		string, error)
+
+	// ListAliases returns the set of all aliases that have ever existed
+	// with their confirmed SCID (if it exists) and/or the base SCID (in the
+	// case of zero conf).
+	ListAliases(ctx context.Context) ([]*lnrpc.AliasMap, error)
 }
 
 // Info contains info about the connected lnd node.
@@ -4426,4 +4431,18 @@ func (s *lightningClient) SubscribeTransactions(
 	}()
 
 	return txChan, errChan, nil
+}
+
+// ListAliases returns the set of all aliases that have ever existed with their
+// confirmed SCID (if it exists) and/or the base SCID (in the case of zero
+// conf).
+func (s *lightningClient) ListAliases(
+	ctx context.Context) ([]*lnrpc.AliasMap, error) {
+
+	res, err := s.client.ListAliases(ctx, &lnrpc.ListAliasesRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	return res.AliasMaps, nil
 }
