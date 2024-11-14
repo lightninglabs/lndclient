@@ -696,6 +696,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/ListAliases": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "read"
+                }
+            ]
+        },
         "/neutrinorpc.NeutrinoKit/AddPeer": {
             "permissions": [
                 {
