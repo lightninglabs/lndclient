@@ -3,6 +3,7 @@ package lndclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -228,13 +229,21 @@ func (s *invoicesClient) AddHoldInvoice(ctx context.Context,
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	routeHints, err := marshallRouteHints(in.RouteHints)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal route hints: %v", err)
+	}
+
 	rpcIn := &invoicesrpc.AddHoldInvoiceRequest{
-		Memo:       in.Memo,
-		Hash:       in.Hash[:],
-		ValueMsat:  int64(in.Value),
-		Expiry:     in.Expiry,
-		CltvExpiry: in.CltvExpiry,
-		Private:    true,
+		Memo:            in.Memo,
+		Hash:            in.Hash[:],
+		ValueMsat:       int64(in.Value),
+		Expiry:          in.Expiry,
+		CltvExpiry:      in.CltvExpiry,
+		Private:         in.Private,
+		RouteHints:      routeHints,
+		DescriptionHash: in.DescriptionHash,
+		FallbackAddr:    in.FallbackAddr,
 	}
 
 	rpcCtx = s.invoiceMac.WithMacaroonAuth(rpcCtx)
