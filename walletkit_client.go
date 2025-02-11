@@ -755,8 +755,8 @@ func (m *walletKitClient) BumpFee(ctx context.Context, op wire.OutPoint,
 				TxidBytes:   op.Hash[:],
 				OutputIndex: op.Index,
 			},
-			SatPerByte: uint32(feeRate.FeePerKVByte() / 1000),
-			Force:      false,
+			SatPerVbyte: uint64(feeRate.FeePerKVByte() / 1000),
+			Immediate:   false,
 		},
 	)
 	return err
