@@ -372,6 +372,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	)
 	walletKitClient := newWalletKitClient(
 		conn, macaroons[WalletKitServiceMac], timeout, chainParams,
+		version,
 	)
 	invoicesClient := newInvoicesClient(
 		conn, macaroons[InvoiceServiceMac], timeout,
