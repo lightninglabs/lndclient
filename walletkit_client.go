@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -134,7 +135,8 @@ type WalletKitClient interface {
 	// child-pays-for-parent (CPFP) scenario. If the given output has been
 	// used in a previous BumpFee call, then a transaction replacing the
 	// previous is broadcast, resulting in a replace-by-fee (RBF) scenario.
-	BumpFee(context.Context, wire.OutPoint, chainfee.SatPerKWeight) error
+	BumpFee(context.Context, wire.OutPoint, chainfee.SatPerKWeight,
+		...BumpFeeOption) error
 
 	// ListAccounts retrieves all accounts belonging to the wallet by default.
 	// Optional name and addressType can be provided to filter through all the
@@ -218,6 +220,7 @@ type walletKitClient struct {
 	walletKitMac serializedMacaroon
 	timeout      time.Duration
 	params       *chaincfg.Params
+	version      *verrpc.Version
 }
 
 // A compile time check to ensure that  walletKitClient implements the
@@ -226,13 +229,15 @@ var _ WalletKitClient = (*walletKitClient)(nil)
 
 func newWalletKitClient(conn grpc.ClientConnInterface,
 	walletKitMac serializedMacaroon, timeout time.Duration,
-	chainParams *chaincfg.Params) *walletKitClient {
+	chainParams *chaincfg.Params,
+	version *verrpc.Version) *walletKitClient {
 
 	return &walletKitClient{
 		client:       walletrpc.NewWalletKitClient(conn),
 		walletKitMac: walletKitMac,
 		timeout:      timeout,
 		params:       chainParams,
+		version:      version,
 	}
 }
 
@@ -737,28 +742,92 @@ func (m *walletKitClient) ListSweepsVerbose(ctx context.Context,
 	return result, nil
 }
 
+// BumpFeeOption customizes a BumpFee call.
+type BumpFeeOption func(*walletrpc.BumpFeeRequest)
+
+// WithImmediate is an option for enabling the immediate mode of BumpFee. The
+// sweeper will sweep this input without waiting for the next block.
+func WithImmediate() BumpFeeOption {
+	return func(r *walletrpc.BumpFeeRequest) {
+		r.Immediate = true
+	}
+}
+
+// WithTargetConf is an option for setting the target_conf of BumpFee. If set,
+// the underlying fee estimator will use the target_conf to estimate the
+// starting fee rate for the fee function. Pass feeRate=0 to BumpFee if you
+// add this option.
+func WithTargetConf(targetConf uint32) BumpFeeOption {
+	return func(r *walletrpc.BumpFeeRequest) {
+		r.TargetConf = targetConf
+	}
+}
+
+// WithBudget is an option for setting the budget of BumpFee. It is the max
+// amount in sats that can be used as the fees. Setting this value greater than
+// the input's value may result in CPFP - one or more wallet utxos will be used
+// to pay the fees specified by the budget. If not set, for new inputs, by
+// default 50% of the input's value will be treated as the budget for fee
+// bumping; for existing inputs, their current budgets will be retained.
+func WithBudget(budget btcutil.Amount) BumpFeeOption {
+	return func(r *walletrpc.BumpFeeRequest) {
+		r.Budget = uint64(budget)
+	}
+}
+
+// targetConfFixed is the minimum version in which bug #9470 is merged and new
+// meaning of TargetConf is enabled. In versions prior to this version the field
+// had a different meaning.
+var targetConfFixed = &verrpc.Version{
+	AppMajor: 0,
+	AppMinor: 18,
+	AppPatch: 5,
+}
+
 // BumpFee attempts to bump the fee of a transaction by spending one of its
 // outputs at the given fee rate. This essentially results in a
 // child-pays-for-parent (CPFP) scenario. If the given output has been used in a
 // previous BumpFee call, then a transaction replacing the previous is
 // broadcast, resulting in a replace-by-fee (RBF) scenario.
 func (m *walletKitClient) BumpFee(ctx context.Context, op wire.OutPoint,
-	feeRate chainfee.SatPerKWeight) error {
+	feeRate chainfee.SatPerKWeight, opts ...BumpFeeOption) error {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
-	_, err := m.client.BumpFee(
-		m.walletKitMac.WithMacaroonAuth(rpcCtx),
-		&walletrpc.BumpFeeRequest{
-			Outpoint: &lnrpc.OutPoint{
-				TxidBytes:   op.Hash[:],
-				OutputIndex: op.Index,
-			},
-			SatPerByte: uint32(feeRate.FeePerKVByte() / 1000),
-			Force:      false,
+	req := &walletrpc.BumpFeeRequest{
+		Outpoint: &lnrpc.OutPoint{
+			TxidBytes:   op.Hash[:],
+			OutputIndex: op.Index,
 		},
-	)
+		SatPerVbyte: uint64(feeRate.FeePerVByte()),
+		Immediate:   false,
+	}
+
+	for _, opt := range opts {
+		opt(req)
+	}
+
+	// Make sure that feeRate and WithTargetConf are not used together.
+	if feeRate != 0 && req.TargetConf != 0 {
+		return fmt.Errorf("can't use target_conf if feeRate != 0")
+	}
+
+	// Make sure that the version of LND is at least targetConfFixed,
+	// because before it the meaning of TargetConf was different. See
+	// https://github.com/lightningnetwork/lnd/pull/9470
+	// TODO(Boris): remove this check when minimalCompatibleVersion
+	// is bumped to targetConfFixed.
+	if req.TargetConf != 0 {
+		err := AssertVersionCompatible(m.version, targetConfFixed)
+		if err != nil {
+			return fmt.Errorf("can't use target_conf before " +
+				"version 0.18.5, see #9470")
+		}
+	}
+
+	_, err := m.client.BumpFee(m.walletKitMac.WithMacaroonAuth(rpcCtx), req)
+
 	return err
 }
 
