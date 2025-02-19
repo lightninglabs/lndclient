@@ -1580,7 +1580,7 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 		DescriptionHash: in.DescriptionHash,
 		Expiry:          in.Expiry,
 		CltvExpiry:      in.CltvExpiry,
-		Private:         true,
+		Private:         in.Private,
 	}
 
 	if in.Preimage != nil {
