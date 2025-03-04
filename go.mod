@@ -9,7 +9,7 @@ require (
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318
 	github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.4
-	github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20250212020202-7b294311bc96
+	github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20250304192711-9feb761b4ec4
 	github.com/lightningnetwork/lnd/kvdb v1.4.12
 	github.com/stretchr/testify v1.9.0
 	google.golang.org/grpc v1.59.0
@@ -188,6 +188,4 @@ require (
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
 
-go 1.22.6
-
-toolchain go1.22.7
+go 1.23.6
