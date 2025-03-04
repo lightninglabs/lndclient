@@ -357,8 +357,6 @@ func (m *walletKitClient) ListLeases(ctx context.Context) ([]LeaseDescriptor,
 
 	leases := make([]LeaseDescriptor, 0, len(resp.LockedUtxos))
 	for _, leasedUtxo := range resp.LockedUtxos {
-		leasedUtxo := leasedUtxo
-
 		txHash, err := chainhash.NewHash(
 			leasedUtxo.Outpoint.TxidBytes,
 		)
