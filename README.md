@@ -24,9 +24,9 @@ different versions. There are two "levels" of depending on a version of
 
 The current compatibility matrix reads as follows:
 
-| `lndclient` git tag                                                                 | `lnd` version in `go.mod` | minimum required `lnd` version | 
-|-------------------------------------------------------------------------------------|---------------------------|--------------------------------|
-| `master` / [`v0.15.4-0`](https://github.com/lightninglabs/lndclient/blob/v0.15.4-0) | `v0.15.4-beta`            | `v0.15.4-beta`                 |
+| `lndclient` git tag                                                                   | `lnd` version in `go.mod` | minimum required `lnd` version | 
+|---------------------------------------------------------------------------------------|---------------------------|--------------------------------|
+| `master` / [`v0.18.5-13`](https://github.com/lightninglabs/lndclient/blob/v0.18.5-13) | `v0.18.5-beta`            | `v0.18.5-beta`                 |
 
 
 By default, `lndclient` requires (and enforces) the following RPC subservers to
