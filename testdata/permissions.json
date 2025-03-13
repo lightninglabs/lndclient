@@ -144,6 +144,14 @@
                 }
             ]
         },
+        "/invoicesrpc.Invoices/HtlcModifier": {
+            "permissions": [
+                {
+                    "entity": "invoices",
+                    "action": "write"
+                }
+            ]
+        },
         "/lnrpc.Lightning/AbandonChannel": {
             "permissions": [
                 {
@@ -552,14 +560,6 @@
                 }
             ]
         },
-        "/lnrpc.Lightning/SendCustomMessage": {
-            "permissions": [
-                {
-                    "entity": "peers",
-                    "action": "write"
-                }
-            ]
-        },
         "/lnrpc.Lightning/SendPayment": {
             "permissions": [
                 {
@@ -640,14 +640,6 @@
                 }
             ]
         },
-        "/lnrpc.Lightning/SubscribeCustomMessages": {
-            "permissions": [
-                {
-                    "entity": "offchain",
-                    "action": "read"
-                }
-            ]
-        },
         "/lnrpc.Lightning/SubscribeInvoices": {
             "permissions": [
                 {
@@ -700,6 +692,14 @@
             "permissions": [
                 {
                     "entity": "onchain",
+                    "action": "read"
+                }
+            ]
+        },
+        "/lnrpc.Lightning/ListAliases": {
+            "permissions": [
+                {
+                    "entity": "offchain",
                     "action": "read"
                 }
             ]
@@ -896,7 +896,15 @@
                 }
             ]
         },
-        "/routerrpc.Router/UpdateChanStatus": {
+        "/routerrpc.Router/XAddLocalChanAlias": {
+            "permissions": [
+                {
+                    "entity": "offchain",
+                    "action": "write"
+                }
+            ]
+        },
+        "/routerrpc.Router/XDeleteLocalChanAlias": {
             "permissions": [
                 {
                     "entity": "offchain",
