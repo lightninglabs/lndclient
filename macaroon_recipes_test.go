@@ -73,7 +73,6 @@ func TestMacaroonRecipe(t *testing.T) {
 
 	// Run the test for all supported RPC packages.
 	for pkg, numPermissions := range expectedPermissions {
-		pkg, numPermissions := pkg, numPermissions
 		t.Run(pkg, func(t *testing.T) {
 			t.Parallel()
 

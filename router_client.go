@@ -1061,7 +1061,6 @@ func (r *routerClient) ImportMissionControl(ctx context.Context,
 	}
 
 	for i, entry := range entries {
-		entry := entry
 		rpcEntry := &routerrpc.PairHistory{
 			NodeFrom: entry.NodeFrom[:],
 			NodeTo:   entry.NodeTo[:],

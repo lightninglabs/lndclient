@@ -42,7 +42,7 @@ var (
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor:  0,
 		AppMinor:  18,
-		AppPatch:  4,
+		AppPatch:  5,
 		BuildTags: DefaultBuildTags,
 	}
 
