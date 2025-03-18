@@ -1,11 +1,12 @@
 run:
   # timeout for analysis
   timeout: 4m
+  go: "1.23"
 
 linters-settings:
   govet:
     # Don't report about shadowed variables
-    check-shadowing: false
+    shadow: false
   gofmt:
     # simplify code: gofmt with `-s` option, true by default
     simplify: true
@@ -20,8 +21,8 @@ linters-settings:
     excludes:
       - G402 # Look for bad TLS connection settings.
       - G306 # Poor file permissions used when writing to a new file.
+      - G115 # Integer overflow conversion.
   staticcheck:
-    go: "1.18"
     checks: ["-SA1019"]
 
 linters:
@@ -79,7 +80,7 @@ linters:
   - contextcheck
   - errname
   - err113
-  - gomnd
+  - mnd
   - noctx
   - nestif
   - wsl
@@ -98,6 +99,3 @@ linters:
   - mnd
   - perfsprint
   - inamedparam
-
-  # Disabled disabled because the Go version (1.21.4) of the project < 1.22.
-  - copyloopvar

@@ -154,7 +154,6 @@ func TestLndVersionCheckComparison(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			err := AssertVersionCompatible(
 				tc.actual, &verrpc.Version{
@@ -311,8 +310,6 @@ func TestGetLndInfo(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
-
 		t.Run(test.name, func(t *testing.T) {
 			mock := newLockLndMock(
 				test.errors, test.stateErr, test.states,

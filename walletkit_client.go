@@ -20,7 +20,6 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -220,7 +219,6 @@ type walletKitClient struct {
 	walletKitMac serializedMacaroon
 	timeout      time.Duration
 	params       *chaincfg.Params
-	version      *verrpc.Version
 }
 
 // A compile time check to ensure that  walletKitClient implements the
@@ -229,15 +227,13 @@ var _ WalletKitClient = (*walletKitClient)(nil)
 
 func newWalletKitClient(conn grpc.ClientConnInterface,
 	walletKitMac serializedMacaroon, timeout time.Duration,
-	chainParams *chaincfg.Params,
-	version *verrpc.Version) *walletKitClient {
+	chainParams *chaincfg.Params) *walletKitClient {
 
 	return &walletKitClient{
 		client:       walletrpc.NewWalletKitClient(conn),
 		walletKitMac: walletKitMac,
 		timeout:      timeout,
 		params:       chainParams,
-		version:      version,
 	}
 }
 
@@ -357,8 +353,6 @@ func (m *walletKitClient) ListLeases(ctx context.Context) ([]LeaseDescriptor,
 
 	leases := make([]LeaseDescriptor, 0, len(resp.LockedUtxos))
 	for _, leasedUtxo := range resp.LockedUtxos {
-		leasedUtxo := leasedUtxo
-
 		txHash, err := chainhash.NewHash(
 			leasedUtxo.Outpoint.TxidBytes,
 		)
@@ -775,15 +769,6 @@ func WithBudget(budget btcutil.Amount) BumpFeeOption {
 	}
 }
 
-// targetConfFixed is the minimum version in which bug #9470 is merged and new
-// meaning of TargetConf is enabled. In versions prior to this version the field
-// had a different meaning.
-var targetConfFixed = &verrpc.Version{
-	AppMajor: 0,
-	AppMinor: 18,
-	AppPatch: 5,
-}
-
 // BumpFee attempts to bump the fee of a transaction by spending one of its
 // outputs at the given fee rate. This essentially results in a
 // child-pays-for-parent (CPFP) scenario. If the given output has been used in a
@@ -811,19 +796,6 @@ func (m *walletKitClient) BumpFee(ctx context.Context, op wire.OutPoint,
 	// Make sure that feeRate and WithTargetConf are not used together.
 	if feeRate != 0 && req.TargetConf != 0 {
 		return fmt.Errorf("can't use target_conf if feeRate != 0")
-	}
-
-	// Make sure that the version of LND is at least targetConfFixed,
-	// because before it the meaning of TargetConf was different. See
-	// https://github.com/lightningnetwork/lnd/pull/9470
-	// TODO(Boris): remove this check when minimalCompatibleVersion
-	// is bumped to targetConfFixed.
-	if req.TargetConf != 0 {
-		err := AssertVersionCompatible(m.version, targetConfFixed)
-		if err != nil {
-			return fmt.Errorf("can't use target_conf before " +
-				"version 0.18.5, see #9470")
-		}
 	}
 
 	_, err := m.client.BumpFee(m.walletKitMac.WithMacaroonAuth(rpcCtx), req)
