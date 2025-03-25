@@ -16,13 +16,16 @@ const (
 	// NetworkTestnet is bitcoin testnet.
 	NetworkTestnet Network = "testnet"
 
+	// NetworkTestnet4 is bitcoin testnet version 4.
+	NetworkTestnet4 Network = "testnet4"
+
 	// NetworkRegtest is bitcoin regtest.
 	NetworkRegtest Network = "regtest"
 
 	// NetworkSimnet is bitcoin simnet.
 	NetworkSimnet Network = "simnet"
 
-	// NetworkSimnet is bitcoin signet.
+	// NetworkSignet is bitcoin signet.
 	NetworkSignet Network = "signet"
 )
 
@@ -34,6 +37,9 @@ func (n Network) ChainParams() (*chaincfg.Params, error) {
 
 	case NetworkTestnet:
 		return &chaincfg.TestNet3Params, nil
+
+	case NetworkTestnet4:
+		return &chaincfg.TestNet4Params, nil
 
 	case NetworkRegtest:
 		return &chaincfg.RegressionNetParams, nil
