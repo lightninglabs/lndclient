@@ -195,4 +195,6 @@ require (
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
 
+replace github.com/lightningnetwork/lnd => github.com/ellemouton/lnd v0.8.0-beta-rc3.0.20250420082546-0054b82f488c
+
 go 1.23.6
