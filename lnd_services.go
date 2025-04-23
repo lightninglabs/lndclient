@@ -242,6 +242,12 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 				defaultChainSubDir, "bitcoin", "testnet",
 			)
 
+		case NetworkTestnet4:
+			macaroonDir = filepath.Join(
+				defaultLndDir, defaultDataDir,
+				defaultChainSubDir, "bitcoin", "testnet4",
+			)
+
 		case NetworkMainnet:
 			macaroonDir = filepath.Join(
 				defaultLndDir, defaultDataDir,
