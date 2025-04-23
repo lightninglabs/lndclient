@@ -118,7 +118,8 @@ type LightningClient interface {
 		opts ...ListTransactionsOption) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
-	ListChannels(ctx context.Context, activeOnly, publicOnly bool) ([]ChannelInfo, error)
+	ListChannels(ctx context.Context, activeOnly, publicOnly bool,
+		opts ...ListChannelsOption) ([]ChannelInfo, error)
 
 	// PendingChannels returns a list of lnd's pending channels.
 	PendingChannels(ctx context.Context) (*PendingChannels, error)
@@ -1964,19 +1965,35 @@ func unmarshallTransaction(rpcTx *lnrpc.Transaction) (Transaction, error) {
 	}, nil
 }
 
+// ListChannelsOption is a functional type for an option that modifies a
+// ListChannelsRequest.
+type ListChannelsOption func(r *lnrpc.ListChannelsRequest)
+
+// WithPeer is an option for setting the account on a ListChannelsRequest.
+func WithPeer(peer []byte) ListChannelsOption {
+	return func(r *lnrpc.ListChannelsRequest) {
+		r.Peer = peer
+	}
+}
+
 // ListChannels retrieves all channels of the backing lnd node.
 func (s *lightningClient) ListChannels(ctx context.Context, activeOnly,
-	publicOnly bool) ([]ChannelInfo, error) {
+	publicOnly bool, opts ...ListChannelsOption) ([]ChannelInfo, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	request := &lnrpc.ListChannelsRequest{
+		ActiveOnly: activeOnly,
+		PublicOnly: publicOnly,
+	}
+
+	for _, opt := range opts {
+		opt(request)
+	}
+
 	response, err := s.client.ListChannels(
-		s.adminMac.WithMacaroonAuth(rpcCtx),
-		&lnrpc.ListChannelsRequest{
-			ActiveOnly: activeOnly,
-			PublicOnly: publicOnly,
-		},
+		s.adminMac.WithMacaroonAuth(rpcCtx), request,
 	)
 	if err != nil {
 		return nil, err
