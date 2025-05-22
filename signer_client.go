@@ -579,6 +579,13 @@ func MuSig2TaprootTweakOpt(scriptRoot []byte,
 	}
 }
 
+// MuSig2LocalNonceOpt adds the local secret nonce to the musig session request.
+func MuSig2LocalNonceOpt(nonce [musig2.SecNonceSize]byte) MuSig2SessionOpts {
+	return func(s *signrpc.MuSig2SessionRequest) {
+		s.PregeneratedLocalNonce = nonce[:]
+	}
+}
+
 // marshallMuSig2Version translates the passed input.MuSig2Version value to
 // signrpc.MuSig2Version.
 func marshallMuSig2Version(version input.MuSig2Version) (
