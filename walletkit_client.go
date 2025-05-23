@@ -216,6 +216,14 @@ type WalletKitClient interface {
 	// currently supported.
 	ImportTaprootScript(ctx context.Context,
 		tapscript *waddrmgr.Tapscript) (btcutil.Address, error)
+
+	// SubmitPackage attempts to broadcast a transaction package, consisting
+	// of one or more parent transactions and exactly one child transaction.
+	// The package is submitted to the backend node's mempool atomically.
+	// This RPC is primarily used for Child-Pays-For-Parent (CPFP) fee
+	// bumping.
+	SubmitPackage(ctx context.Context, req *walletrpc.SubmitPackageRequest) (
+		*walletrpc.SubmitPackageResponse, error)
 }
 
 type walletKitClient struct {
@@ -1109,4 +1117,20 @@ func (m *walletKitClient) ImportTaprootScript(ctx context.Context,
 	}
 
 	return p2trAddr, nil
+}
+
+// SubmitPackage attempts to broadcast a transaction package, consisting of one
+// or more parent transactions and exactly one child transaction. The package is
+// submitted to the backend node's mempool atomically. This RPC is primarily
+// used for Child-Pays-For-Parent (CPFP) fee bumping.
+func (m *walletKitClient) SubmitPackage(ctx context.Context,
+	req *walletrpc.SubmitPackageRequest) (*walletrpc.SubmitPackageResponse,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	return m.client.SubmitPackage(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx), req,
+	)
 }
