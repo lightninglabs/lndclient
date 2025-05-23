@@ -181,8 +181,9 @@ type LightningClient interface {
 
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
-		force bool, confTarget int32, deliveryAddr btcutil.Address) (
-		chan CloseChannelUpdate, chan error, error)
+		force bool, confTarget int32, deliveryAddr btcutil.Address,
+		opts ...CloseChannelOption) (chan CloseChannelUpdate,
+		chan error, error)
 
 	// UpdateChanPolicy updates the channel policy for the passed chanPoint.
 	// If the chanPoint is nil, then the policy is applied for all existing
@@ -3085,6 +3086,33 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 	return p.CloseTx
 }
 
+// CloseChannelOption is a functional type for an option that modifies a
+// CloseChannelRequest.
+type CloseChannelOption func(r *lnrpc.CloseChannelRequest)
+
+// SatPerVbyte is an option for setting the fee rate of a CloseChannelRequest.
+func SatPerVbyte(satPerVbyte chainfee.SatPerVByte) CloseChannelOption {
+	return func(r *lnrpc.CloseChannelRequest) {
+		r.SatPerVbyte = uint64(satPerVbyte)
+	}
+}
+
+// MaxFeePerVbyte is an option for setting the maximum fee rate a closer is
+// willing to pay on a CloseChannelRequest.
+func MaxFeePerVbyte(maxFeePerVbyte chainfee.SatPerVByte) CloseChannelOption {
+	return func(r *lnrpc.CloseChannelRequest) {
+		r.MaxFeePerVbyte = uint64(maxFeePerVbyte)
+	}
+}
+
+// WithNoWait is an option for setting the NoWait flag on an
+// CloseChannelRequest.
+func WithNoWait() CloseChannelOption {
+	return func(r *lnrpc.CloseChannelRequest) {
+		r.NoWait = true
+	}
+}
+
 // CloseChannel closes the channel provided, returning a channel that will send
 // a stream of close updates, and an error channel which will receive errors if
 // the channel close stream fails. This function starts a goroutine to consume
@@ -3093,11 +3121,11 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 // sending an EOF), we close the updates and error channel to signal that there
 // are no more updates to be sent. It takes an optional delivery address that
 // funds will be paid out to in the case where we cooperative close a channel
-// that *does not* have an upfront shutdown addresss set.
+// that *does not* have an upfront shutdown address set.
 func (s *lightningClient) CloseChannel(ctx context.Context,
 	channel *wire.OutPoint, force bool, confTarget int32,
-	deliveryAddr btcutil.Address) (chan CloseChannelUpdate, chan error,
-	error) {
+	deliveryAddr btcutil.Address, opts ...CloseChannelOption) (
+	chan CloseChannelUpdate, chan error, error) {
 
 	var (
 		rpcCtx  = s.adminMac.WithMacaroonAuth(ctx)
@@ -3108,7 +3136,7 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 		addrStr = deliveryAddr.String()
 	}
 
-	stream, err := s.client.CloseChannel(rpcCtx, &lnrpc.CloseChannelRequest{
+	closeChannelReq := &lnrpc.CloseChannelRequest{
 		ChannelPoint: &lnrpc.ChannelPoint{
 			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 				FundingTxidBytes: channel.Hash[:],
@@ -3118,7 +3146,13 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 		TargetConf:      confTarget,
 		Force:           force,
 		DeliveryAddress: addrStr,
-	})
+	}
+
+	for _, opt := range opts {
+		opt(closeChannelReq)
+	}
+
+	stream, err := s.client.CloseChannel(rpcCtx, closeChannelReq)
 	if err != nil {
 		return nil, nil, err
 	}
