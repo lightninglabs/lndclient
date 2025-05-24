@@ -118,7 +118,8 @@ type LightningClient interface {
 		opts ...ListTransactionsOption) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
-	ListChannels(ctx context.Context, activeOnly, publicOnly bool) ([]ChannelInfo, error)
+	ListChannels(ctx context.Context, activeOnly, publicOnly bool) (
+		[]ChannelInfo, error)
 
 	// PendingChannels returns a list of lnd's pending channels.
 	PendingChannels(ctx context.Context) (*PendingChannels, error)
@@ -128,8 +129,8 @@ type LightningClient interface {
 
 	// ForwardingHistory makes a paginated call to our forwarding history
 	// endpoint.
-	ForwardingHistory(ctx context.Context,
-		req ForwardingHistoryRequest) (*ForwardingHistoryResponse, error)
+	ForwardingHistory(ctx context.Context, req ForwardingHistoryRequest) (
+		*ForwardingHistoryResponse, error)
 
 	// ListInvoices makes a paginated call to our list invoices endpoint.
 	ListInvoices(ctx context.Context, req ListInvoicesRequest) (
@@ -148,9 +149,8 @@ type LightningClient interface {
 	// chanbackup.Multi payload.
 	ChannelBackups(ctx context.Context) ([]byte, error)
 
-	// SubscribeChannelBackups allows a client to subscribe to the
-	// most up to date information concerning the state of all channel
-	// backups.
+	// SubscribeChannelBackups allows a client to subscribe to the most
+	// up-to-date information concerning the state of all channel backups.
 	SubscribeChannelBackups(ctx context.Context) (
 		<-chan lnrpc.ChanBackupSnapshot, <-chan error, error)
 
@@ -221,7 +221,8 @@ type LightningClient interface {
 		includeChannels bool) (*NodeInfo, error)
 
 	// DescribeGraph returns our view of the graph.
-	DescribeGraph(ctx context.Context, includeUnannounced bool) (*Graph, error)
+	DescribeGraph(ctx context.Context, includeUnannounced bool) (*Graph,
+		error)
 
 	// SubscribeGraph allows a client to subscribe to gaph topology updates.
 	SubscribeGraph(ctx context.Context) (<-chan *GraphTopologyUpdate,
@@ -293,8 +294,7 @@ type LightningClient interface {
 	// The returned signature string is zbase32 encoded and pubkey
 	// recoverable, meaning that only the message digest and signature
 	// are needed for verification.
-	SignMessage(ctx context.Context, data []byte) (string,
-		error)
+	SignMessage(ctx context.Context, data []byte) (string, error)
 
 	// VerifyMessage verifies a signature over a msg. The signature must
 	// be zbase32 encoded and signed by an active node in the resident
@@ -359,9 +359,9 @@ type ChannelInfo struct {
 	// Active indicates whether the channel is active.
 	Active bool
 
-	// ChannelID holds the unique channel ID for the channel. The first 3 bytes
-	// are the block height, the next 3 the index within the block, and the last
-	// 2 bytes are the /output index for the channel.
+	// ChannelID holds the unique channel ID for the channel. The first 3
+	// bytes are the block height, the next 3 the index within the block,
+	// and the last 2 bytes are the /output index for the channel.
 	ChannelID uint64
 
 	// PubKeyBytes is the raw bytes of the public key of the remote node.
@@ -765,7 +765,7 @@ const (
 	ForceCloseAnchorStateLost = ForceCloseAnchorState(lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST)
 )
 
-// String provides the string represenetation of a close initiator.
+// String provides the string representation of a close initiator.
 func (c Initiator) String() string {
 	switch c {
 	case InitiatorUnrecorded:
@@ -2873,7 +2873,7 @@ type PaymentRequest struct {
 	// Value is the value of the payment request in millisatoshis.
 	Value lnwire.MilliSatoshi
 
-	/// Timestamp of the payment request.
+	// Timestamp of the payment request.
 	Timestamp time.Time
 
 	// Expiry is the time at which the payment request expires.
@@ -3364,7 +3364,7 @@ type ChannelEdge struct {
 	Node2Policy *RoutingPolicy
 }
 
-// getRoutingPolicy converts an lnrpc.RoutingPolicy to RoutingPolicy.
+// getRoutingPolicy converts a lnrpc.RoutingPolicy to RoutingPolicy.
 func getRoutingPolicy(policy *lnrpc.RoutingPolicy) *RoutingPolicy {
 	if policy == nil {
 		return nil
@@ -3678,7 +3678,7 @@ func (s *lightningClient) SubscribeGraph(ctx context.Context) (
 	return updates, errChan, nil
 }
 
-// getGraphTopologyUpdate converts an lnrpc.GraphTopologyUpdate to the higher
+// getGraphTopologyUpdate converts a lnrpc.GraphTopologyUpdate to the higher
 // level GraphTopologyUpdate.
 func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
 	*GraphTopologyUpdate, error) {
@@ -3814,19 +3814,20 @@ func (s *lightningClient) NetworkInfo(ctx context.Context) (*NetworkInfo,
 // to start streaming.
 type InvoiceSubscriptionRequest struct {
 	// If specified (non-zero), then we'll first start by sending out
-	// notifications for all added indexes with an add_index greater than this
-	// value. This allows callers to catch up on any events they missed while they
-	// weren't connected to the streaming RPC.
+	// notifications for all added indexes with an add_index greater than
+	// this value. This allows callers to catch up on any events they missed
+	// while they weren't connected to the streaming RPC.
 	AddIndex uint64
 
 	// If specified (non-zero), then we'll first start by sending out
-	// notifications for all settled indexes with an settle_index greater than
-	// this value. This allows callers to catch up on any events they missed while
-	// they weren't connected to the streaming RPC.
+	// notifications for all settled indexes with a settle_index greater
+	// than this value. This allows callers to catch up on any events they
+	// missed while they weren't connected to the streaming RPC.
 	SettleIndex uint64
 }
 
-// SubscribeInvoices subscribes a client to updates of newly added/settled invoices.
+// SubscribeInvoices subscribes a client to updates of newly added/settled
+// invoices.
 func (s *lightningClient) SubscribeInvoices(ctx context.Context,
 	req InvoiceSubscriptionRequest) (<-chan *Invoice, <-chan error, error) {
 
