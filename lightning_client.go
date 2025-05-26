@@ -118,7 +118,8 @@ type LightningClient interface {
 		opts ...ListTransactionsOption) ([]Transaction, error)
 
 	// ListChannels retrieves all channels of the backing lnd node.
-	ListChannels(ctx context.Context, activeOnly, publicOnly bool) ([]ChannelInfo, error)
+	ListChannels(ctx context.Context, activeOnly, publicOnly bool) (
+		[]ChannelInfo, error)
 
 	// PendingChannels returns a list of lnd's pending channels.
 	PendingChannels(ctx context.Context) (*PendingChannels, error)
@@ -128,8 +129,8 @@ type LightningClient interface {
 
 	// ForwardingHistory makes a paginated call to our forwarding history
 	// endpoint.
-	ForwardingHistory(ctx context.Context,
-		req ForwardingHistoryRequest) (*ForwardingHistoryResponse, error)
+	ForwardingHistory(ctx context.Context, req ForwardingHistoryRequest) (
+		*ForwardingHistoryResponse, error)
 
 	// ListInvoices makes a paginated call to our list invoices endpoint.
 	ListInvoices(ctx context.Context, req ListInvoicesRequest) (
@@ -148,9 +149,8 @@ type LightningClient interface {
 	// chanbackup.Multi payload.
 	ChannelBackups(ctx context.Context) ([]byte, error)
 
-	// SubscribeChannelBackups allows a client to subscribe to the
-	// most up to date information concerning the state of all channel
-	// backups.
+	// SubscribeChannelBackups allows a client to subscribe to the most
+	// up-to-date information concerning the state of all channel backups.
 	SubscribeChannelBackups(ctx context.Context) (
 		<-chan lnrpc.ChanBackupSnapshot, <-chan error, error)
 
@@ -181,8 +181,9 @@ type LightningClient interface {
 
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
-		force bool, confTarget int32, deliveryAddr btcutil.Address) (
-		chan CloseChannelUpdate, chan error, error)
+		force bool, confTarget int32, deliveryAddr btcutil.Address,
+		opts ...CloseChannelOption) (chan CloseChannelUpdate,
+		chan error, error)
 
 	// UpdateChanPolicy updates the channel policy for the passed chanPoint.
 	// If the chanPoint is nil, then the policy is applied for all existing
@@ -221,7 +222,8 @@ type LightningClient interface {
 		includeChannels bool) (*NodeInfo, error)
 
 	// DescribeGraph returns our view of the graph.
-	DescribeGraph(ctx context.Context, includeUnannounced bool) (*Graph, error)
+	DescribeGraph(ctx context.Context, includeUnannounced bool) (*Graph,
+		error)
 
 	// SubscribeGraph allows a client to subscribe to gaph topology updates.
 	SubscribeGraph(ctx context.Context) (<-chan *GraphTopologyUpdate,
@@ -293,8 +295,7 @@ type LightningClient interface {
 	// The returned signature string is zbase32 encoded and pubkey
 	// recoverable, meaning that only the message digest and signature
 	// are needed for verification.
-	SignMessage(ctx context.Context, data []byte) (string,
-		error)
+	SignMessage(ctx context.Context, data []byte) (string, error)
 
 	// VerifyMessage verifies a signature over a msg. The signature must
 	// be zbase32 encoded and signed by an active node in the resident
@@ -359,9 +360,9 @@ type ChannelInfo struct {
 	// Active indicates whether the channel is active.
 	Active bool
 
-	// ChannelID holds the unique channel ID for the channel. The first 3 bytes
-	// are the block height, the next 3 the index within the block, and the last
-	// 2 bytes are the /output index for the channel.
+	// ChannelID holds the unique channel ID for the channel. The first 3
+	// bytes are the block height, the next 3 the index within the block,
+	// and the last 2 bytes are the /output index for the channel.
 	ChannelID uint64
 
 	// PubKeyBytes is the raw bytes of the public key of the remote node.
@@ -765,7 +766,7 @@ const (
 	ForceCloseAnchorStateLost = ForceCloseAnchorState(lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST)
 )
 
-// String provides the string represenetation of a close initiator.
+// String provides the string representation of a close initiator.
 func (c Initiator) String() string {
 	switch c {
 	case InitiatorUnrecorded:
@@ -2873,7 +2874,7 @@ type PaymentRequest struct {
 	// Value is the value of the payment request in millisatoshis.
 	Value lnwire.MilliSatoshi
 
-	/// Timestamp of the payment request.
+	// Timestamp of the payment request.
 	Timestamp time.Time
 
 	// Expiry is the time at which the payment request expires.
@@ -3085,6 +3086,33 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 	return p.CloseTx
 }
 
+// CloseChannelOption is a functional type for an option that modifies a
+// CloseChannelRequest.
+type CloseChannelOption func(r *lnrpc.CloseChannelRequest)
+
+// SatPerVbyte is an option for setting the fee rate of a CloseChannelRequest.
+func SatPerVbyte(satPerVbyte chainfee.SatPerVByte) CloseChannelOption {
+	return func(r *lnrpc.CloseChannelRequest) {
+		r.SatPerVbyte = uint64(satPerVbyte)
+	}
+}
+
+// MaxFeePerVbyte is an option for setting the maximum fee rate a closer is
+// willing to pay on a CloseChannelRequest.
+func MaxFeePerVbyte(maxFeePerVbyte chainfee.SatPerVByte) CloseChannelOption {
+	return func(r *lnrpc.CloseChannelRequest) {
+		r.MaxFeePerVbyte = uint64(maxFeePerVbyte)
+	}
+}
+
+// WithNoWait is an option for setting the NoWait flag on an
+// CloseChannelRequest.
+func WithNoWait() CloseChannelOption {
+	return func(r *lnrpc.CloseChannelRequest) {
+		r.NoWait = true
+	}
+}
+
 // CloseChannel closes the channel provided, returning a channel that will send
 // a stream of close updates, and an error channel which will receive errors if
 // the channel close stream fails. This function starts a goroutine to consume
@@ -3093,11 +3121,11 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 // sending an EOF), we close the updates and error channel to signal that there
 // are no more updates to be sent. It takes an optional delivery address that
 // funds will be paid out to in the case where we cooperative close a channel
-// that *does not* have an upfront shutdown addresss set.
+// that *does not* have an upfront shutdown address set.
 func (s *lightningClient) CloseChannel(ctx context.Context,
 	channel *wire.OutPoint, force bool, confTarget int32,
-	deliveryAddr btcutil.Address) (chan CloseChannelUpdate, chan error,
-	error) {
+	deliveryAddr btcutil.Address, opts ...CloseChannelOption) (
+	chan CloseChannelUpdate, chan error, error) {
 
 	var (
 		rpcCtx  = s.adminMac.WithMacaroonAuth(ctx)
@@ -3108,7 +3136,7 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 		addrStr = deliveryAddr.String()
 	}
 
-	stream, err := s.client.CloseChannel(rpcCtx, &lnrpc.CloseChannelRequest{
+	closeChannelReq := &lnrpc.CloseChannelRequest{
 		ChannelPoint: &lnrpc.ChannelPoint{
 			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 				FundingTxidBytes: channel.Hash[:],
@@ -3118,7 +3146,13 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 		TargetConf:      confTarget,
 		Force:           force,
 		DeliveryAddress: addrStr,
-	})
+	}
+
+	for _, opt := range opts {
+		opt(closeChannelReq)
+	}
+
+	stream, err := s.client.CloseChannel(rpcCtx, closeChannelReq)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3364,7 +3398,7 @@ type ChannelEdge struct {
 	Node2Policy *RoutingPolicy
 }
 
-// getRoutingPolicy converts an lnrpc.RoutingPolicy to RoutingPolicy.
+// getRoutingPolicy converts a lnrpc.RoutingPolicy to RoutingPolicy.
 func getRoutingPolicy(policy *lnrpc.RoutingPolicy) *RoutingPolicy {
 	if policy == nil {
 		return nil
@@ -3678,7 +3712,7 @@ func (s *lightningClient) SubscribeGraph(ctx context.Context) (
 	return updates, errChan, nil
 }
 
-// getGraphTopologyUpdate converts an lnrpc.GraphTopologyUpdate to the higher
+// getGraphTopologyUpdate converts a lnrpc.GraphTopologyUpdate to the higher
 // level GraphTopologyUpdate.
 func getGraphTopologyUpdate(update *lnrpc.GraphTopologyUpdate) (
 	*GraphTopologyUpdate, error) {
@@ -3814,19 +3848,20 @@ func (s *lightningClient) NetworkInfo(ctx context.Context) (*NetworkInfo,
 // to start streaming.
 type InvoiceSubscriptionRequest struct {
 	// If specified (non-zero), then we'll first start by sending out
-	// notifications for all added indexes with an add_index greater than this
-	// value. This allows callers to catch up on any events they missed while they
-	// weren't connected to the streaming RPC.
+	// notifications for all added indexes with an add_index greater than
+	// this value. This allows callers to catch up on any events they missed
+	// while they weren't connected to the streaming RPC.
 	AddIndex uint64
 
 	// If specified (non-zero), then we'll first start by sending out
-	// notifications for all settled indexes with an settle_index greater than
-	// this value. This allows callers to catch up on any events they missed while
-	// they weren't connected to the streaming RPC.
+	// notifications for all settled indexes with a settle_index greater
+	// than this value. This allows callers to catch up on any events they
+	// missed while they weren't connected to the streaming RPC.
 	SettleIndex uint64
 }
 
-// SubscribeInvoices subscribes a client to updates of newly added/settled invoices.
+// SubscribeInvoices subscribes a client to updates of newly added/settled
+// invoices.
 func (s *lightningClient) SubscribeInvoices(ctx context.Context,
 	req InvoiceSubscriptionRequest) (<-chan *Invoice, <-chan error, error) {
 
