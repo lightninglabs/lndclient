@@ -502,6 +502,12 @@ func (s *signerClient) VerifyMessage(ctx context.Context, msg, sig []byte,
 		opt(rpcIn)
 	}
 
+	// If the signature is a Schnorr signature, we need to set the public
+	// key as the 32-byte x-only key, as mentioned in the RPC docs.
+	if rpcIn.IsSchnorrSig {
+		rpcIn.Pubkey = pubkey[1:]
+	}
+
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
 	resp, err := s.client.VerifyMessage(rpcCtx, rpcIn)
 	if err != nil {
