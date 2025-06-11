@@ -533,10 +533,13 @@ func (s *signerClient) DeriveSharedKey(ctx context.Context,
 
 	rpcIn := &signrpc.SharedKeyRequest{
 		EphemeralPubkey: ephemeralPubKey.SerializeCompressed(),
-		KeyLoc: &signrpc.KeyLocator{
+	}
+
+	if keyLocator != nil {
+		rpcIn.KeyLoc = &signrpc.KeyLocator{
 			KeyFamily: int32(keyLocator.Family),
 			KeyIndex:  int32(keyLocator.Index),
-		},
+		}
 	}
 
 	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
