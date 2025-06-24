@@ -101,6 +101,10 @@ type WalletKitClient interface {
 		addressType walletrpc.AddressType,
 		change bool) (btcutil.Address, error)
 
+	// GetTransaction returns details for a transaction found in the wallet.
+	GetTransaction(ctx context.Context,
+		txid chainhash.Hash) (Transaction, error)
+
 	PublishTransaction(ctx context.Context, tx *wire.MsgTx,
 		label string) error
 
@@ -479,6 +483,26 @@ func (m *walletKitClient) NextAddr(ctx context.Context, accountName string,
 	}
 
 	return addr, nil
+}
+
+// GetTransaction returns details for a transaction found in the wallet.
+func (m *walletKitClient) GetTransaction(ctx context.Context,
+	txid chainhash.Hash) (Transaction, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+
+	req := &walletrpc.GetTransactionRequest{
+		Txid: txid.String(),
+	}
+	resp, err := m.client.GetTransaction(rpcCtx, req)
+	if err != nil {
+		return Transaction{}, err
+	}
+
+	return unmarshallTransaction(resp)
 }
 
 func (m *walletKitClient) PublishTransaction(ctx context.Context,
