@@ -13,36 +13,36 @@ import (
 	"google.golang.org/grpc"
 )
 
-// notifierOptions is a set of functional options that allow callers to further
+// NotifierOptions is a set of functional options that allow callers to further
 // modify the type of chain even notifications they receive.
-type notifierOptions struct {
-	// includeBlock if true, then the dispatched confirmation notification
+type NotifierOptions struct {
+	// IncludeBlock if true, then the dispatched confirmation notification
 	// will include the block that mined the transaction.
-	includeBlock bool
+	IncludeBlock bool
 
-	// reOrgChan if set, will be sent on if the transaction is re-organized
+	// ReOrgChan if set, will be sent on if the transaction is re-organized
 	// out of the chain. This channel being set will also imply that we
 	// don't cancel the notification listener after having received one
 	// confirmation event. That means the caller manually needs to cancel
 	// the passed in context to cancel being notified once the required
 	// number of confirmations have been reached.
-	reOrgChan chan struct{}
+	ReOrgChan chan struct{}
 }
 
 // defaultNotifierOptions returns the set of default options for the notifier.
-func defaultNotifierOptions() *notifierOptions {
-	return &notifierOptions{}
+func DefaultNotifierOptions() *NotifierOptions {
+	return &NotifierOptions{}
 }
 
 // NotifierOption is a functional option that allows a caller to modify the
 // events received from the notifier.
-type NotifierOption func(*notifierOptions)
+type NotifierOption func(*NotifierOptions)
 
 // WithIncludeBlock is an optional argument that allows the caller to specify
 // that the block that mined a transaction should be included in the response.
 func WithIncludeBlock() NotifierOption {
-	return func(o *notifierOptions) {
-		o.includeBlock = true
+	return func(o *NotifierOptions) {
+		o.IncludeBlock = true
 	}
 }
 
@@ -53,8 +53,8 @@ func WithIncludeBlock() NotifierOption {
 // to cancel being notified once the required number of confirmations have been
 // reached.
 func WithReOrgChan(reOrgChan chan struct{}) NotifierOption {
-	return func(o *notifierOptions) {
-		o.reOrgChan = reOrgChan
+	return func(o *NotifierOptions) {
+		o.ReOrgChan = reOrgChan
 	}
 }
 
@@ -191,7 +191,7 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 	optFuncs ...NotifierOption) (chan *chainntnfs.TxConfirmation,
 	chan error, error) {
 
-	opts := defaultNotifierOptions()
+	opts := DefaultNotifierOptions()
 	for _, optFunc := range optFuncs {
 		optFunc(opts)
 	}
@@ -206,7 +206,7 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 			NumConfs:     uint32(numConfs),
 			HeightHint:   uint32(heightHint),
 			Txid:         txidSlice,
-			IncludeBlock: opts.includeBlock,
+			IncludeBlock: opts.IncludeBlock,
 		},
 	)
 	if err != nil {
@@ -238,7 +238,7 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 				}
 
 				var block *wire.MsgBlock
-				if opts.includeBlock {
+				if opts.IncludeBlock {
 					block, err = decodeBlock(
 						c.Conf.RawBlock,
 					)
@@ -268,7 +268,7 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 				// we don't return here, since we might want to
 				// be informed about the new block we got
 				// confirmed in after a re-org.
-				if opts.reOrgChan == nil {
+				if opts.ReOrgChan == nil {
 					return
 				}
 
@@ -276,9 +276,9 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 			// any additional information. But we only signal if the
 			// caller requested to be notified about re-orgs.
 			case *chainrpc.ConfEvent_Reorg:
-				if opts.reOrgChan != nil {
+				if opts.ReOrgChan != nil {
 					select {
-					case opts.reOrgChan <- struct{}{}:
+					case opts.ReOrgChan <- struct{}{}:
 					case <-ctx.Done():
 						return
 					}
