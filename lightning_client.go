@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -316,14 +318,26 @@ type Info struct {
 	// Version is the version that lnd is running.
 	Version string
 
+	// CommitHash is the SHA1 commit hash that the daemon is compiled with.
+	CommitHash string
+
 	// BlockHeight is the best block height that lnd has knowledge of.
 	BlockHeight uint32
+
+	// BestHeaderTimeStamp is the best block timestamp known to the wallet.
+	BestHeaderTimeStamp time.Time
+
+	// BestBlockHash is the node's view of the hash of the best block.
+	BestBlockHash chainhash.Hash
 
 	// IdentityPubkey is our node's pubkey.
 	IdentityPubkey [33]byte
 
 	// Alias is our node's alias.
 	Alias string
+
+	// Color is the color of the current node in RGB format.
+	Color color.RGBA
 
 	// Network is the network we are currently operating on.
 	Network string
@@ -339,9 +353,6 @@ type Info struct {
 	// public channel graph.
 	SyncedToGraph bool
 
-	// BestHeaderTimeStamp is the best block timestamp known to the wallet.
-	BestHeaderTimeStamp time.Time
-
 	// ActiveChannels is the number of active channels we have.
 	ActiveChannels uint32
 
@@ -350,6 +361,9 @@ type Info struct {
 
 	// PendingChannels is the number of pending channels we have.
 	PendingChannels uint32
+
+	// NumPeers is the number of peers we connect to.
+	NumPeers uint32
 }
 
 // ChannelInfo stores unpacked per-channel info.
@@ -1419,19 +1433,34 @@ func newInfo(resp *lnrpc.GetInfoResponse) (*Info, error) {
 	var pubKeyArray [33]byte
 	copy(pubKeyArray[:], pubKey)
 
+	bestBlockHash, err := chainhash.NewHashFromStr(resp.BlockHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse BlockHash: %w", err)
+	}
+
+	color, err := lncfg.ParseHexColor(resp.Color)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse color hex %q: %w",
+			resp.Color, err)
+	}
+
 	return &Info{
 		Version:             resp.Version,
+		CommitHash:          resp.CommitHash,
 		BlockHeight:         resp.BlockHeight,
+		BestHeaderTimeStamp: time.Unix(resp.BestHeaderTimestamp, 0),
+		BestBlockHash:       *bestBlockHash,
 		IdentityPubkey:      pubKeyArray,
 		Alias:               resp.Alias,
+		Color:               color,
 		Network:             resp.Chains[0].Network,
 		Uris:                resp.Uris,
 		SyncedToChain:       resp.SyncedToChain,
 		SyncedToGraph:       resp.SyncedToGraph,
-		BestHeaderTimeStamp: time.Unix(resp.BestHeaderTimestamp, 0),
 		ActiveChannels:      resp.NumActiveChannels,
 		InactiveChannels:    resp.NumInactiveChannels,
 		PendingChannels:     resp.NumPendingChannels,
+		NumPeers:            resp.NumPeers,
 	}, nil
 }
 
