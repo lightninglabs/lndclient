@@ -197,6 +197,7 @@ func (l *lockLNDMock) GetInfo(ctx context.Context, _ *lnrpc.GetInfoRequest,
 
 	return &lnrpc.GetInfoResponse{
 		Chains: []*lnrpc.Chain{{}},
+		Color:  "#112233",
 	}, err
 }
 
