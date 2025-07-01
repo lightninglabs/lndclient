@@ -308,6 +308,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/EstimateFees": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "read"
+                }
+            ]
+        },
         "/lnrpc.Lightning/ExportAllChannelBackups": {
             "permissions": [
                 {
