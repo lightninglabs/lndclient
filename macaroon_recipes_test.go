@@ -3,7 +3,7 @@ package lndclient_test
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"testing"
 
 	"github.com/lightninglabs/lndclient"
@@ -12,7 +12,7 @@ import (
 
 var (
 	expectedPermissions = map[string]int{
-		"lnrpc":       11,
+		"lnrpc":       13,
 		"chainrpc":    1,
 		"invoicesrpc": 2,
 		"routerrpc":   2,
@@ -48,7 +48,7 @@ func (m *lightningMock) ListPermissions(
 func TestMacaroonRecipe(t *testing.T) {
 	// Load our static permissions exported from lnd by calling
 	// `lncli listpermissions > permissions.json`.
-	content, err := ioutil.ReadFile("testdata/permissions.json")
+	content, err := os.ReadFile("testdata/permissions.json")
 	require.NoError(t, err)
 
 	data := &permissionJSONData{}
@@ -73,7 +73,6 @@ func TestMacaroonRecipe(t *testing.T) {
 
 	// Run the test for all supported RPC packages.
 	for pkg, numPermissions := range expectedPermissions {
-		pkg, numPermissions := pkg, numPermissions
 		t.Run(pkg, func(t *testing.T) {
 			t.Parallel()
 

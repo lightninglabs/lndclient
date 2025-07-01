@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
@@ -16,6 +17,15 @@ import (
 type mockVersioner struct {
 	version *verrpc.Version
 	err     error
+}
+
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (m *mockVersioner) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	verrpc.VersionerClient) {
+
+	return parentCtx, 0, nil
 }
 
 func (m *mockVersioner) GetVersion(_ context.Context) (*verrpc.Version, error) {
@@ -144,7 +154,6 @@ func TestLndVersionCheckComparison(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			err := AssertVersionCompatible(
 				tc.actual, &verrpc.Version{
@@ -301,8 +310,6 @@ func TestGetLndInfo(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
-
 		t.Run(test.name, func(t *testing.T) {
 			mock := newLockLndMock(
 				test.errors, test.stateErr, test.states,
@@ -319,7 +326,7 @@ func TestGetLndInfo(t *testing.T) {
 				require.Error(t, err)
 
 				// Error might be wrapped.
-				require.True(t, errors.Is(err, test.expected))
+				require.ErrorIs(t, err, test.expected)
 			}
 		})
 	}

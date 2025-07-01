@@ -37,12 +37,12 @@ var (
 	// required in lnd to get all functionality implemented in lndclient.
 	// Users can provide their own, specific version if needed. If only a
 	// subset of the lndclient functionality is needed, the required build
-	// tags can be adjusted accordingly. This default will be used as a fall
-	// back version if none is specified in the configuration.
+	// tags can be adjusted accordingly. This default will be used as a
+	// fallback version if none is specified in the configuration.
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor:  0,
-		AppMinor:  15,
-		AppPatch:  4,
+		AppMinor:  18,
+		AppPatch:  5,
 		BuildTags: DefaultBuildTags,
 	}
 
@@ -77,6 +77,14 @@ var (
 			"yet ready to accept calls",
 	}
 )
+
+// ServiceClient is an interface that all lnd service clients need to implement.
+type ServiceClient[T any] interface {
+	// RawClientWithMacAuth returns a context with the proper macaroon
+	// authentication, the default RPC timeout, and the raw client.
+	RawClientWithMacAuth(parentCtx context.Context) (context.Context,
+		time.Duration, T)
+}
 
 // LndServicesConfig holds all configuration settings that are needed to connect
 // to an lnd node.
@@ -152,6 +160,10 @@ type LndServicesConfig struct {
 	// calls to lnd. If this value is not set, it will default to 30
 	// seconds.
 	RPCTimeout time.Duration
+
+	// ChainSyncPollInterval is the interval in which we poll the GetInfo
+	// call to find out if lnd is fully synced to its chain backend.
+	ChainSyncPollInterval time.Duration
 }
 
 // DialerFunc is a function that is used as grpc.WithContextDialer().
@@ -230,6 +242,12 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 				defaultChainSubDir, "bitcoin", "testnet",
 			)
 
+		case NetworkTestnet4:
+			macaroonDir = filepath.Join(
+				defaultLndDir, defaultDataDir,
+				defaultChainSubDir, "bitcoin", "testnet4",
+			)
+
 		case NetworkMainnet:
 			macaroonDir = filepath.Join(
 				defaultLndDir, defaultDataDir,
@@ -285,7 +303,8 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		readonlyMac = serializedMacaroon(cfg.CustomMacaroonHex)
 	} else {
 		readonlyMac, err = loadMacaroon(
-			macaroonDir, string(ReadOnlyServiceMac), cfg.CustomMacaroonPath,
+			macaroonDir, string(ReadOnlyServiceMac),
+			cfg.CustomMacaroonPath,
 		)
 		if err != nil {
 			return nil, err
@@ -297,8 +316,12 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		timeout = cfg.RPCTimeout
 	}
 
+	if cfg.ChainSyncPollInterval == 0 {
+		cfg.ChainSyncPollInterval = chainSyncPollInterval
+	}
+
 	basicClient := lnrpc.NewLightningClient(conn)
-	stateClient := newStateClient(conn, readonlyMac)
+	stateClient := newStateClient(conn, readonlyMac, timeout)
 	versionerClient := newVersionerClient(conn, readonlyMac, timeout)
 
 	cleanupConn := func() {
@@ -392,6 +415,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 			Invoices:      invoicesClient,
 			Router:        routerClient,
 			Versioner:     versionerClient,
+			State:         stateClient,
 			ChainParams:   chainParams,
 			NodeAlias:     nodeAlias,
 			NodePubkey:    route.Vertex(nodeKey),
@@ -412,7 +436,9 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		log.Infof("Waiting for lnd to be fully synced to its chain " +
 			"backend, this might take a while")
 
-		err := services.waitForChainSync(cfg.CallerCtx, timeout)
+		err := services.waitForChainSync(
+			cfg.CallerCtx, timeout, cfg.ChainSyncPollInterval,
+		)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("error waiting for chain to "+
@@ -452,7 +478,7 @@ func (s *GrpcLndServices) Close() {
 // synced to its chain backend. This could theoretically take hours if the
 // initial block download is still in progress.
 func (s *GrpcLndServices) waitForChainSync(ctx context.Context,
-	timeout time.Duration) error {
+	timeout, pollInterval time.Duration) error {
 
 	mainCtx := ctx
 	if mainCtx == nil {
@@ -487,7 +513,7 @@ func (s *GrpcLndServices) waitForChainSync(ctx context.Context,
 
 			select {
 			// If we're not yet done, let's now wait a few seconds.
-			case <-time.After(chainSyncPollInterval):
+			case <-time.After(pollInterval):
 
 			// If the user cancels the context, we should also
 			// abort the wait.
@@ -789,8 +815,8 @@ var (
 	defaultChainSubDir = "chain"
 
 	// maxMsgRecvSize is the largest gRPC message our client will receive.
-	// We set this to 200MiB.
-	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(1 * 1024 * 1024 * 200)
+	// We set this to 800MiB.
+	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(800 * 1024 * 1024)
 )
 
 func getClientConn(cfg *LndServicesConfig) (*grpc.ClientConn, error) {

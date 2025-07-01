@@ -3,7 +3,7 @@ package lndclient
 import (
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -184,7 +184,7 @@ func parseTLSAndMacaroon(tlsPath, macDir, network string,
 		macPath := filepath.Join(macDir, bco.macFilename)
 
 		// Load the specified macaroon file.
-		macBytes, err = ioutil.ReadFile(macPath)
+		macBytes, err = os.ReadFile(macPath)
 		if err != nil {
 			return nil, nil, err
 		}

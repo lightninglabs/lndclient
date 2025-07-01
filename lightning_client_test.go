@@ -66,7 +66,6 @@ func TestLightningClientAddInvoice(t *testing.T) {
 		DescriptionHash: validAddInvoiceData.DescriptionHash,
 		Expiry:          validAddInvoiceData.Expiry,
 		CltvExpiry:      validAddInvoiceData.CltvExpiry,
-		Private:         true,
 	}
 
 	validPayReq := "a valid pay req"
@@ -83,6 +82,22 @@ func TestLightningClientAddInvoice(t *testing.T) {
 		*lnrpc.AddInvoiceResponse, error) {
 
 		return validResp, nil
+	}
+
+	privateAddInvoiceData := *validAddInvoiceData
+	privateAddInvoiceData.Private = true
+	privateInvoice := &lnrpc.Invoice{
+		Memo:            validAddInvoiceData.Memo,
+		RPreimage:       validAddInvoiceData.Preimage[:],
+		RHash:           validAddInvoiceData.Hash[:],
+		ValueMsat:       int64(validAddInvoiceData.Value),
+		DescriptionHash: validAddInvoiceData.DescriptionHash,
+		Expiry:          validAddInvoiceData.Expiry,
+		CltvExpiry:      validAddInvoiceData.CltvExpiry,
+		Private:         true,
+	}
+	privateAddInvoiceArgs := []addInvoiceArg{
+		{in: privateInvoice},
 	}
 
 	errorAddInvoice := func(in *lnrpc.Invoice, opts ...grpc.CallOption) (
@@ -119,7 +134,20 @@ func TestLightningClientAddInvoice(t *testing.T) {
 				hash:           validRHash,
 				payRequest:     validPayReq,
 			},
-		}, {
+		},
+		{
+			name: "private invoice",
+			client: mockRPCClient{
+				addInvoice: validAddInvoice,
+			},
+			invoice: &privateAddInvoiceData,
+			expect: expect{
+				addInvoiceArgs: privateAddInvoiceArgs,
+				hash:           validRHash,
+				payRequest:     validPayReq,
+			},
+		},
+		{
 			name: "rpc client error",
 			client: mockRPCClient{
 				addInvoice: errorAddInvoice,
@@ -133,7 +161,6 @@ func TestLightningClientAddInvoice(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(test.name, func(t *testing.T) {
 			ln := lightningClient{
 				client: &test.client,

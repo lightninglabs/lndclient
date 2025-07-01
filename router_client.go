@@ -31,6 +31,8 @@ var ErrRouterShuttingDown = errors.New("router shutting down")
 
 // RouterClient exposes payment functionality.
 type RouterClient interface {
+	ServiceClient[routerrpc.RouterClient]
+
 	// SendPayment attempts to route a payment to the final destination. The
 	// call returns a payment update stream and an error stream.
 	SendPayment(ctx context.Context, request SendPaymentRequest) (
@@ -73,6 +75,20 @@ type RouterClient interface {
 	// (enabled, disabled, or auto).
 	UpdateChanStatus(ctx context.Context,
 		channel *wire.OutPoint, action routerrpc.ChanStatusAction) error
+
+	// XAddLocalChanAlias is an experimental method that allows the caller
+	// to add a local channel alias to the router. This is only a locally
+	// stored alias, and will not be communicated to the channel peer via
+	// any message. Therefore, routing over such an alias will only work if
+	// the peer also calls this same RPC on their end.
+	XAddLocalChanAlias(ctx context.Context, alias,
+		baseScid lnwire.ShortChannelID) error
+
+	// XDeleteLocalChanAlias is an experimental method that allows the
+	// caller to remove a local channel alias in the router. The deletion
+	// will not be communicated to the channel peer via any message.
+	XDeleteLocalChanAlias(ctx context.Context, alias,
+		baseScid lnwire.ShortChannelID) error
 }
 
 // PaymentStatus describe the state of a payment.
@@ -279,10 +295,25 @@ type SendPaymentRequest struct {
 
 	// Payment secret
 	PaymentAddr []byte
-
-	// The time preference for this payment. Set to -1 to optimize for fees only, to 1 to optimize for reliability only
-	// or a value in between for a mix.
+  
+	// The time preference for this payment. Set to -1 to optimize for fees
+	// only, to 1 to optimize for reliability only or a value in-between for
+	// a mix.
 	TimePref float64
+
+	// AMP is set to true if the payment should be an AMP payment.
+	AMP bool
+
+	// Cancelable controls if the payment can be interrupted manually by
+	// canceling the payment context, even before the payment timeout is
+	// reached. Note that the payment may still succeed after cancellation,
+	// as in-flight attempts can still settle afterward. Canceling will only
+	// prevent further attempts from being sent.
+	Cancelable bool
+
+	// FirstHopCustomRecords holds the custom TLV records should be sent to
+	// the first hop as part of the wire message.
+	FirstHopCustomRecords map[uint64][]byte
 }
 
 // InterceptedHtlc contains information about a htlc that was intercepted in
@@ -311,6 +342,17 @@ type InterceptedHtlc struct {
 	// Since lnd has non-strict forwarding, this may not be the channel that
 	// the htlc ends up being forwarded on.
 	OutgoingChannelID lnwire.ShortChannelID
+
+	// CustomRecords holds the custom TLV records that were added to the
+	// payment.
+	CustomRecords map[uint64][]byte
+
+	// OnionBlob is the onion blob for the next hop.
+	OnionBlob []byte
+
+	// InWireCustomRecords are custom records sent by the sender that were
+	// only present in the wire message and not the onion itself.
+	InWireCustomRecords map[uint64][]byte
 }
 
 // HtlcInterceptHandler is a function signature for handling code for htlc
@@ -334,6 +376,10 @@ const (
 	// InterceptorActionResume indicates that an intercepted hltc should be
 	// resumed as normal.
 	InterceptorActionResume
+
+	// InterceptorActionResumeModified indicates that an intercepted hltc
+	// should be resumed as normal, but with modifications.
+	InterceptorActionResumeModified
 )
 
 // InterceptedHtlcResponse contains the actions that must be taken for an
@@ -346,6 +392,19 @@ type InterceptedHtlcResponse struct {
 	// Action is the action that should be taken for the htlc that is
 	// intercepted.
 	Action InterceptorAction
+
+	// IncomingAmount is the amount that should be used to validate the
+	// incoming htlc. This might be different from the actual HTLC amount
+	// for custom channels.
+	IncomingAmount lnwire.MilliSatoshi
+
+	// OutgoingAmount is the amount that should be set on the HTLC that is
+	// forwarded.
+	OutgoingAmount lnwire.MilliSatoshi
+
+	// CustomRecords are the custom records that should be added to the
+	// outgoing/forwarded HTLC.
+	CustomRecords map[uint64][]byte
 }
 
 // routerClient is a wrapper around the generated routerrpc proxy.
@@ -357,6 +416,10 @@ type routerClient struct {
 	quit         chan struct{}
 	wg           sync.WaitGroup
 }
+
+// A compile time check to ensure that routerClient implements the RouterClient
+// interface.
+var _ RouterClient = (*routerClient)(nil)
 
 func newRouterClient(conn grpc.ClientConnInterface,
 	routerKitMac serializedMacaroon, timeout time.Duration) *routerClient {
@@ -379,6 +442,15 @@ func (r *routerClient) WaitForFinished() {
 	r.wg.Wait()
 }
 
+// RawClientWithMacAuth returns a context with the proper macaroon
+// authentication, the default RPC timeout, and the raw client.
+func (r *routerClient) RawClientWithMacAuth(
+	parentCtx context.Context) (context.Context, time.Duration,
+	routerrpc.RouterClient) {
+
+	return r.routerKitMac.WithMacaroonAuth(parentCtx), r.timeout, r.client
+}
+
 // SendPayment attempts to route a payment to the final destination. The call
 // returns a payment update stream and an error stream.
 func (r *routerClient) SendPayment(ctx context.Context,
@@ -386,16 +458,20 @@ func (r *routerClient) SendPayment(ctx context.Context,
 
 	rpcCtx := r.routerKitMac.WithMacaroonAuth(ctx)
 	rpcReq := &routerrpc.SendPaymentRequest{
-		FeeLimitSat:      int64(request.MaxFee),
-		FeeLimitMsat:     int64(request.MaxFeeMsat),
-		PaymentRequest:   request.Invoice,
-		TimeoutSeconds:   int32(request.Timeout.Seconds()),
-		MaxParts:         request.MaxParts,
-		OutgoingChanIds:  request.OutgoingChanIds,
-		AllowSelfPayment: request.AllowSelfPayment,
-		PaymentAddr:      request.PaymentAddr,
-		Amt:              int64(request.Amount),
-		TimePref:         request.TimePref,
+
+		FeeLimitSat:           int64(request.MaxFee),
+		FeeLimitMsat:          int64(request.MaxFeeMsat),
+		PaymentRequest:        request.Invoice,
+		TimeoutSeconds:        int32(request.Timeout.Seconds()),
+		MaxParts:              request.MaxParts,
+		OutgoingChanIds:       request.OutgoingChanIds,
+		AllowSelfPayment:      request.AllowSelfPayment,
+		Amp:                   request.AMP,
+    PaymentAddr:           request.PaymentAddr,
+		Amt:                   int64(request.Amount),
+		TimePref:              request.TimePref,
+		Cancelable:            request.Cancelable,
+		FirstHopCustomRecords: request.FirstHopCustomRecords,
 	}
 	if request.MaxCltv != nil {
 		rpcReq.CltvLimit = *request.MaxCltv
@@ -764,6 +840,7 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 			chanOut := lnwire.NewShortChanIDFromInt(
 				request.OutgoingRequestedChanId,
 			)
+			inWireCustomRecords := request.InWireCustomRecords
 
 			req := InterceptedHtlc{
 				IncomingCircuitKey: invpkg.CircuitKey{
@@ -780,6 +857,9 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 				IncomingExpiryHeight: request.IncomingExpiry,
 				OutgoingExpiryHeight: request.OutgoingExpiry,
 				OutgoingChannelID:    chanOut,
+				CustomRecords:        request.CustomRecords,
+				OnionBlob:            request.OnionBlob,
+				InWireCustomRecords:  inWireCustomRecords,
 			}
 
 			// Try to send our interception request, failing on
@@ -878,6 +958,14 @@ func rpcInterceptorResponse(request InterceptedHtlc,
 
 	case InterceptorActionResume:
 		rpcResp.Action = routerrpc.ResolveHoldForwardAction_RESUME
+
+	case InterceptorActionResumeModified:
+		//nolint:lll
+		rpcResp.Action = routerrpc.ResolveHoldForwardAction_RESUME_MODIFIED
+
+		rpcResp.InAmountMsat = uint64(response.IncomingAmount)
+		rpcResp.OutAmountMsat = uint64(response.OutgoingAmount)
+		rpcResp.OutWireCustomRecords = response.CustomRecords
 
 	default:
 		return nil, fmt.Errorf("unknown action: %v", response.Action)
@@ -979,7 +1067,6 @@ func (r *routerClient) ImportMissionControl(ctx context.Context,
 	}
 
 	for i, entry := range entries {
-		entry := entry
 		rpcEntry := &routerrpc.PairHistory{
 			NodeFrom: entry.NodeFrom[:],
 			NodeTo:   entry.NodeTo[:],
@@ -1037,6 +1124,58 @@ func (r *routerClient) UpdateChanStatus(ctx context.Context,
 				OutputIndex: channel.Index,
 			},
 			Action: action,
+		},
+	)
+	return err
+}
+
+// XAddLocalChanAlias is an experimental method that allows the caller
+// to add a local channel alias to the router. This is only a locally
+// stored alias, and will not be communicated to the channel peer via
+// any message. Therefore, routing over such an alias will only work if
+// the peer also calls this same RPC on their end.
+func (r *routerClient) XAddLocalChanAlias(ctx context.Context, alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.XAddLocalChanAliases(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.AddAliasesRequest{
+			AliasMaps: []*lnrpc.AliasMap{
+				{
+					BaseScid: baseScid.ToUint64(),
+					Aliases: []uint64{
+						alias.ToUint64(),
+					},
+				},
+			},
+		},
+	)
+	return err
+}
+
+// XDeleteLocalChanAlias is an experimental method that allows the
+// caller to remove a local channel alias in the router. The deletion
+// will not be communicated to the channel peer via any message.
+func (r *routerClient) XDeleteLocalChanAlias(ctx context.Context, alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	_, err := r.client.XDeleteLocalChanAliases(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.DeleteAliasesRequest{
+			AliasMaps: []*lnrpc.AliasMap{
+				{
+					BaseScid: baseScid.ToUint64(),
+					Aliases: []uint64{
+						alias.ToUint64(),
+					},
+				},
+			},
 		},
 	)
 	return err
