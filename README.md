@@ -1,47 +1,35 @@
-# Golang client library for lnd
+# IBEX fork of lightninglabs/lndclient
 
-`lndclient` is a golang native wrapper for `lnd`'s gRPC interface.
+Changes that were introduced are required by the following services
 
-## Compatibility matrix
+```
+btcproxy:
+- NewAddress grpc call
+- SendMany grpc call
+- EstimateFee grpc call
 
-This library depends heavily on `lnd` for obvious reasons. To support backward
-compatibility with older versions of `lnd`, we use different branches for
-different versions. There are two "levels" of depending on a version of
-`lnd`:
- - Code level dependency: This is the version of `lnd` that is pulled in when
-   compiling `lndclient`. It is defined in `go.mod`. This usually is the latest
-   released version of `lnd`, because its RPC definitions are kept backward
-   compatible. This means that a new field added in the latest version of `lnd`
-   might already be available in `lndclient`'s code, but whether or not that
-   field will actually be set at run time is dependent on the actual version of
-   `lnd` that's being connected to.
- - RPC level dependency: This is defined in `minimalCompatibleVersion` in
-   [`lnd_services.go`](lnd_services.go). When connecting to `lnd`, the version
-   returned by its version service is checked and if it doesn't meet the minimal
-   required version defined in `lnd_services.go`, an error will be returned.
-   Users of `lndclient` can also overwrite this minimum required version when
-   creating a new client.
+lnproxy:
+- invoiceUpdate millisatoshi support
+- PaymentAddr and TimePref support for SendPaymentRequest
+- TimePref support for QueryRoutesRequest
 
-The current compatibility matrix reads as follows:
+node-metrics-agent:
+- PeerAliasLookup support for ListChannels grpc call
+- PeerAlias support for ChannelInfo
+```
 
-| `lndclient` git tag                                                                   | `lnd` version in `go.mod` | minimum required `lnd` version | 
-|---------------------------------------------------------------------------------------|---------------------------|--------------------------------|
-| `master` / [`v0.18.5-13`](https://github.com/lightninglabs/lndclient/blob/v0.18.5-13) | `v0.18.5-beta`            | `v0.18.5-beta`                 |
+## Building a new release
 
+Tag the commit and push the tag to remote. Then simply import the release in the target release.
 
-By default, `lndclient` requires (and enforces) the following RPC subservers to
-be active in `lnd`:
- - `signrpc`
- - `walletrpc`
- - `chainrpc`
- - `invoicesrpc`
+Increment the last digit for each new tag.
 
-## Branch strategy
+```
+# lndclient
+git tag ibex-v0.17.0-0
+git push origin ibex-v0.17.0-0
 
-We follow the following strategy to maintain different versions of this library
-that have different `lnd` compatibilities:
-
-1. The `master` is always backward compatible with the last major version.
-2. We create branches for all minor versions and future major versions and merge PRs to those branches, if the features require that version to work.
-3. We rebase the branches if needed and use tags to track versions that we depend on in other projects.
-4. Once a new major version of `lnd` is final, all branches of minor versions lower than that are merged into master.
+# target service
+replace ...lndclient... => ...lndclient ibex-v0.17.0-0
+go mod tidy -v
+```

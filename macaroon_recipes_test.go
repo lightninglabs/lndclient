@@ -6,13 +6,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/lightninglabs/lndclient"
 	"github.com/stretchr/testify/require"
+
+	"github.com/lightninglabs/lndclient"
 )
 
 var (
 	expectedPermissions = map[string]int{
-		"lnrpc":       13,
+		"lnrpc":       14,
 		"chainrpc":    1,
 		"invoicesrpc": 2,
 		"routerrpc":   2,
@@ -38,7 +39,8 @@ type lightningMock struct {
 }
 
 func (m *lightningMock) ListPermissions(
-	_ context.Context) (map[string][]lndclient.MacaroonPermission, error) {
+	_ context.Context,
+) (map[string][]lndclient.MacaroonPermission, error) {
 
 	return m.mockPermissions, nil
 }
