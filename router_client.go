@@ -295,7 +295,7 @@ type SendPaymentRequest struct {
 
 	// Payment secret
 	PaymentAddr []byte
-  
+
 	// The time preference for this payment. Set to -1 to optimize for fees
 	// only, to 1 to optimize for reliability only or a value in-between for
 	// a mix.
@@ -467,7 +467,7 @@ func (r *routerClient) SendPayment(ctx context.Context,
 		OutgoingChanIds:       request.OutgoingChanIds,
 		AllowSelfPayment:      request.AllowSelfPayment,
 		Amp:                   request.AMP,
-    PaymentAddr:           request.PaymentAddr,
+		PaymentAddr:           request.PaymentAddr,
 		Amt:                   int64(request.Amount),
 		TimePref:              request.TimePref,
 		Cancelable:            request.Cancelable,
