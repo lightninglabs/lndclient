@@ -1136,6 +1136,14 @@
                 }
             ]
         },
+        "/walletrpc.WalletKit/GetTransaction": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "read"
+                }
+            ]
+        },
         "/walletrpc.WalletKit/PendingSweeps": {
             "permissions": [
                 {

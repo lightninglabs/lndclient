@@ -101,6 +101,10 @@ type WalletKitClient interface {
 		addressType walletrpc.AddressType,
 		change bool) (btcutil.Address, error)
 
+	// GetTransaction returns details for a transaction found in the wallet.
+	GetTransaction(ctx context.Context,
+		txid chainhash.Hash) (Transaction, error)
+
 	PublishTransaction(ctx context.Context, tx *wire.MsgTx,
 		label string) error
 
@@ -212,6 +216,14 @@ type WalletKitClient interface {
 	// currently supported.
 	ImportTaprootScript(ctx context.Context,
 		tapscript *waddrmgr.Tapscript) (btcutil.Address, error)
+
+	// SubmitPackage attempts to broadcast a transaction package, consisting
+	// of one or more parent transactions and exactly one child transaction.
+	// The package is submitted to the backend node's mempool atomically.
+	// This RPC is primarily used for Child-Pays-For-Parent (CPFP) fee
+	// bumping.
+	SubmitPackage(ctx context.Context, req *walletrpc.SubmitPackageRequest) (
+		*walletrpc.SubmitPackageResponse, error)
 }
 
 type walletKitClient struct {
@@ -479,6 +491,26 @@ func (m *walletKitClient) NextAddr(ctx context.Context, accountName string,
 	}
 
 	return addr, nil
+}
+
+// GetTransaction returns details for a transaction found in the wallet.
+func (m *walletKitClient) GetTransaction(ctx context.Context,
+	txid chainhash.Hash) (Transaction, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+
+	req := &walletrpc.GetTransactionRequest{
+		Txid: txid.String(),
+	}
+	resp, err := m.client.GetTransaction(rpcCtx, req)
+	if err != nil {
+		return Transaction{}, err
+	}
+
+	return unmarshallTransaction(resp)
 }
 
 func (m *walletKitClient) PublishTransaction(ctx context.Context,
@@ -1085,4 +1117,20 @@ func (m *walletKitClient) ImportTaprootScript(ctx context.Context,
 	}
 
 	return p2trAddr, nil
+}
+
+// SubmitPackage attempts to broadcast a transaction package, consisting of one
+// or more parent transactions and exactly one child transaction. The package is
+// submitted to the backend node's mempool atomically. This RPC is primarily
+// used for Child-Pays-For-Parent (CPFP) fee bumping.
+func (m *walletKitClient) SubmitPackage(ctx context.Context,
+	req *walletrpc.SubmitPackageRequest) (*walletrpc.SubmitPackageResponse,
+	error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	return m.client.SubmitPackage(
+		m.walletKitMac.WithMacaroonAuth(rpcCtx), req,
+	)
 }
