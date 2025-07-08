@@ -71,8 +71,9 @@ type ChainNotifierClient interface {
 		chan error, error)
 
 	RegisterSpendNtfn(ctx context.Context,
-		outpoint *wire.OutPoint, pkScript []byte, heightHint int32) (
-		chan *chainntnfs.SpendDetail, chan error, error)
+		outpoint *wire.OutPoint, pkScript []byte, heightHint int32,
+		optFuncs ...NotifierOption) (chan *chainntnfs.SpendDetail,
+		chan error, error)
 }
 
 type chainNotifierClient struct {
@@ -111,8 +112,18 @@ func (s *chainNotifierClient) RawClientWithMacAuth(
 }
 
 func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
-	outpoint *wire.OutPoint, pkScript []byte, heightHint int32) (
-	chan *chainntnfs.SpendDetail, chan error, error) {
+	outpoint *wire.OutPoint, pkScript []byte, heightHint int32,
+	optFuncs ...NotifierOption) (chan *chainntnfs.SpendDetail, chan error,
+	error) {
+
+	opts := DefaultNotifierOptions()
+	for _, optFunc := range optFuncs {
+		optFunc(opts)
+	}
+	if opts.IncludeBlock {
+		return nil, nil, fmt.Errorf("option IncludeBlock is not " +
+			"supported by RegisterSpendNtfn")
+	}
 
 	var rpcOutpoint *chainrpc.Outpoint
 	if outpoint != nil {
@@ -162,6 +173,18 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 		return nil
 	}
 
+	processReorg := func() {
+		if opts.ReOrgChan == nil {
+			return
+		}
+
+		select {
+		case opts.ReOrgChan <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+	}
+
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -172,12 +195,35 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 				return
 			}
 
-			c, ok := spendEvent.Event.(*chainrpc.SpendEvent_Spend)
-			if ok {
+			switch c := spendEvent.Event.(type) {
+			case *chainrpc.SpendEvent_Spend:
 				err := processSpendDetail(c.Spend)
 				if err != nil {
 					errChan <- err
+
+					return
 				}
+
+				// If we're running in re-org aware mode, then
+				// we don't return here, since we might want to
+				// be informed about the new block we got
+				// confirmed in after a re-org.
+				if opts.ReOrgChan == nil {
+					return
+				}
+
+			case *chainrpc.SpendEvent_Reorg:
+				processReorg()
+
+			// Nil event, should never happen.
+			case nil:
+				errChan <- fmt.Errorf("spend event empty")
+				return
+
+			// Unexpected type.
+			default:
+				errChan <- fmt.Errorf("spend event has " +
+					"unexpected type")
 				return
 			}
 		}
