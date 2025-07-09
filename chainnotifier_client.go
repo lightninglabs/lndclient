@@ -159,7 +159,7 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		spendChan <- &chainntnfs.SpendDetail{
+		spend := &chainntnfs.SpendDetail{
 			SpentOutPoint: &wire.OutPoint{
 				Hash:  *outpointHash,
 				Index: d.SpendingOutpoint.Index,
@@ -170,7 +170,12 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 			SpendingHeight:    int32(d.SpendingHeight),
 		}
 
-		return nil
+		select {
+		case spendChan <- spend:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	processReorg := func() {
@@ -302,12 +307,18 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 					return
 				}
 
-				confChan <- &chainntnfs.TxConfirmation{
+				conf := &chainntnfs.TxConfirmation{
 					BlockHeight: c.Conf.BlockHeight,
 					BlockHash:   blockHash,
 					Tx:          tx,
 					TxIndex:     c.Conf.TxIndex,
 					Block:       block,
+				}
+
+				select {
+				case confChan <- conf:
+				case <-ctx.Done():
+					return
 				}
 
 				// If we're running in re-org aware mode, then
