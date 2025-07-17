@@ -52,7 +52,7 @@ require (
 	github.com/go-errors/errors v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
+	github.com/go-viper/mapstructure/v2 v2.3.0 // indirect
 	github.com/gofrs/uuid v4.2.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
@@ -194,5 +194,11 @@ require (
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
+
+replace github.com/lightningnetwork/lnd => github.com/bhandras/lnd v0.8.0-beta-rc3.0.20250523081420-f8b9f36a39d1
+
+replace github.com/btcsuite/btcwallet => github.com/bhandras/btcwallet v0.11.1-0.20250507171803-0de1c46b1cfc
+
+replace github.com/btcsuite/btcd => github.com/bhandras/btcd v0.22.0-beta.0.20250507171227-f18160c86e92
 
 go 1.23.6
