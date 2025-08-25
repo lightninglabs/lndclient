@@ -648,7 +648,7 @@ func unmarshallOutputType(o lnrpc.OutputScriptType) txscript.ScriptClass {
 	}
 }
 
-// RPCTransaction returns a rpc transaction.
+// UnmarshalTransactionDetail returns a rpc transaction.
 func UnmarshalTransactionDetail(tx *lnrpc.Transaction,
 	chainParams *chaincfg.Params) (*lnwallet.TransactionDetail, error) {
 

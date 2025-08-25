@@ -13,6 +13,7 @@ import (
 // with a specific lnrpc service.
 type LnrpcServiceMac string
 
+//nolint:revive
 const (
 	AdminServiceMac         LnrpcServiceMac = "admin.macaroon"
 	InvoiceServiceMac       LnrpcServiceMac = "invoices.macaroon"

@@ -3302,6 +3302,7 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 	return updateChan, errChan, nil
 }
 
+// InboundFee holds the inbound fee policy for a channel.
 type InboundFee struct {
 	// BaseFeeMsat is the inbound base fee charged regardless of the number
 	// of milli-satoshis received in the channel. By default, only negative

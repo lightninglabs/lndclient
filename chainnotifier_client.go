@@ -29,7 +29,7 @@ type NotifierOptions struct {
 	ReOrgChan chan struct{}
 }
 
-// defaultNotifierOptions returns the set of default options for the notifier.
+// DefaultNotifierOptions returns the set of default options for the notifier.
 func DefaultNotifierOptions() *NotifierOptions {
 	return &NotifierOptions{}
 }
