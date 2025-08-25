@@ -769,15 +769,21 @@ type ForceCloseAnchorState int32
 const (
 	// ForceCloseAnchorStateLimbo is set if the recovered_balance is zero
 	// and limbo_balance is non-zero.
-	ForceCloseAnchorStateLimbo = ForceCloseAnchorState(lnrpc.PendingChannelsResponse_ForceClosedChannel_LIMBO)
+	ForceCloseAnchorStateLimbo = ForceCloseAnchorState(
+		lnrpc.PendingChannelsResponse_ForceClosedChannel_LIMBO,
+	)
 
 	// ForceCloseAnchorStateRecovered is set if the recovered_balance is
 	// non-zero.
-	ForceCloseAnchorStateRecovered = ForceCloseAnchorState(lnrpc.PendingChannelsResponse_ForceClosedChannel_RECOVERED)
+	ForceCloseAnchorStateRecovered = ForceCloseAnchorState(
+		lnrpc.PendingChannelsResponse_ForceClosedChannel_RECOVERED,
+	)
 
 	// ForceCloseAnchorStateLost indicates a state that is neither
 	// ForceCloseAnchorStateLimbo nor ForceCloseAnchorStateRecovered.
-	ForceCloseAnchorStateLost = ForceCloseAnchorState(lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST)
+	ForceCloseAnchorStateLost = ForceCloseAnchorState(
+		lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST,
+	)
 )
 
 // String provides the string representation of a close initiator.
@@ -2157,7 +2163,8 @@ type WaitingCloseChannel struct {
 	RemotePending chainhash.Hash
 
 	// ChanStatusFlags specifies the current channel state, examples:
-	//   - ChanStatusBorked|ChanStatusCommitBroadcasted|ChanStatusLocalCloseInitiator
+	//   - ChanStatusBorked|ChanStatusCommitBroadcasted|
+	//     ChanStatusLocalCloseInitiator
 	//   - ChanStatusCoopBroadcasted|ChanStatusLocalCloseInitiator
 	//   - ChanStatusCoopBroadcasted|ChanStatusRemoteCloseInitiator
 	ChanStatusFlags string
@@ -2167,8 +2174,8 @@ type WaitingCloseChannel struct {
 }
 
 // PendingChannels returns a list of lnd's pending channels.
-func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels,
-	error) {
+func (s *lightningClient) PendingChannels(
+	ctx context.Context) (*PendingChannels, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -2182,9 +2189,16 @@ func (s *lightningClient) PendingChannels(ctx context.Context) (*PendingChannels
 	}
 
 	pending := &PendingChannels{
-		PendingForceClose: make([]ForceCloseChannel, len(resp.PendingForceClosingChannels)),
-		PendingOpen:       make([]PendingChannel, len(resp.PendingOpenChannels)),
-		WaitingClose:      make([]WaitingCloseChannel, len(resp.WaitingCloseChannels)),
+		PendingForceClose: make(
+			[]ForceCloseChannel,
+			len(resp.PendingForceClosingChannels),
+		),
+		PendingOpen: make(
+			[]PendingChannel, len(resp.PendingOpenChannels),
+		),
+		WaitingClose: make(
+			[]WaitingCloseChannel, len(resp.WaitingCloseChannels),
+		),
 	}
 
 	for i, force := range resp.PendingForceClosingChannels {
@@ -3053,8 +3067,8 @@ func (s *lightningClient) getOpenStatusUpdate(
 // OpenChannelStream opens a channel to the specified peer and with the
 // specified arguments and options. This function returns a stream of
 // updates.
-func (s *lightningClient) OpenChannelStream(ctx context.Context, peer route.Vertex,
-	localSat, pushSat btcutil.Amount, private bool,
+func (s *lightningClient) OpenChannelStream(ctx context.Context,
+	peer route.Vertex, localSat, pushSat btcutil.Amount, private bool,
 	opts ...OpenChannelOption) (<-chan *OpenStatusUpdate, <-chan error,
 	error) {
 

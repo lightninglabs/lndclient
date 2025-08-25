@@ -126,8 +126,8 @@ func (s *chainKitClient) GetBlockHeader(ctxParent context.Context,
 
 // GetBestBlock returns the block hash and current height from the valid
 // most-work chain.
-func (s *chainKitClient) GetBestBlock(ctxParent context.Context) (chainhash.Hash,
-	int32, error) {
+func (s *chainKitClient) GetBestBlock(
+	ctxParent context.Context) (chainhash.Hash, int32, error) {
 
 	ctx, cancel := context.WithTimeout(ctxParent, s.timeout)
 	defer cancel()

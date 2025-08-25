@@ -75,7 +75,9 @@ func newSerializedMacaroon(macaroonPath string) (serializedMacaroon, error) {
 // WithMacaroonAuth modifies the passed context to include the macaroon KV
 // metadata of the target macaroon. This method can be used to add the macaroon
 // at call time, rather than when the connection to the gRPC server is created.
-func (s serializedMacaroon) WithMacaroonAuth(ctx context.Context) context.Context {
+func (s serializedMacaroon) WithMacaroonAuth(
+	ctx context.Context) context.Context {
+
 	return metadata.AppendToOutgoingContext(ctx, "macaroon", string(s))
 }
 
@@ -86,8 +88,8 @@ type macaroonPouch map[LnrpcServiceMac]serializedMacaroon
 
 // newMacaroonPouch returns a new instance of a fully populated macaroonPouch
 // given the directory where all the macaroons are stored.
-func newMacaroonPouch(macaroonDir, customMacPath, customMacHex string) (macaroonPouch,
-	error) {
+func newMacaroonPouch(macaroonDir, customMacPath, customMacHex string) (
+	macaroonPouch, error) {
 
 	// If a custom macaroon is specified, we assume it contains all
 	// permissions needed for the different subservers to function and we

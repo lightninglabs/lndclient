@@ -249,6 +249,7 @@ func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 		return keyDesc
 	}
 
+	//nolint:lll
 	// fullDescriptor is a helper method that creates a fully populated sign
 	// descriptor that includes both the public key and the key locator (if
 	// available). For the locator we explicitly check that both the family

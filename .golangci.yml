@@ -4,6 +4,8 @@ run:
   go: "1.23"
 
 linters-settings:
+  lll:
+    line-length: 80
   govet:
     # Don't report about shadowed variables
     shadow: false
@@ -30,10 +32,6 @@ linters:
   disable:
   # Global variables are used in many places throughout the code base.
   - gochecknoglobals
-
-  # Some lines are over 80 characters on purpose and we don't want to make them
-  # even longer by marking them as 'nolint'.
-  - lll
 
   # We want to allow short variable names.
   - varnamelen
