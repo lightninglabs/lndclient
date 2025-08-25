@@ -434,8 +434,8 @@ func (m *walletKitClient) DeriveNextKey(ctx context.Context, family int32) (
 	}, nil
 }
 
-func (m *walletKitClient) DeriveKey(ctx context.Context, in *keychain.KeyLocator) (
-	*keychain.KeyDescriptor, error) {
+func (m *walletKitClient) DeriveKey(ctx context.Context,
+	in *keychain.KeyLocator) (*keychain.KeyDescriptor, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
@@ -550,8 +550,8 @@ func (m *walletKitClient) SendOutputs(ctx context.Context,
 	return tx, nil
 }
 
-func (m *walletKitClient) EstimateFeeRate(ctx context.Context, confTarget int32) (
-	chainfee.SatPerKWeight, error) {
+func (m *walletKitClient) EstimateFeeRate(ctx context.Context,
+	confTarget int32) (chainfee.SatPerKWeight, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
@@ -648,7 +648,7 @@ func unmarshallOutputType(o lnrpc.OutputScriptType) txscript.ScriptClass {
 	}
 }
 
-// RPCTransaction returns a rpc transaction.
+// UnmarshalTransactionDetail returns a rpc transaction.
 func UnmarshalTransactionDetail(tx *lnrpc.Transaction,
 	chainParams *chaincfg.Params) (*lnwallet.TransactionDetail, error) {
 

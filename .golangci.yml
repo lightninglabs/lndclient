@@ -4,6 +4,8 @@ run:
   go: "1.23"
 
 linters-settings:
+  lll:
+    line-length: 80
   govet:
     # Don't report about shadowed variables
     shadow: false
@@ -24,16 +26,20 @@ linters-settings:
       - G115 # Integer overflow conversion.
   staticcheck:
     checks: ["-SA1019"]
+  revive:
+    rules:
+      - name: exported # To enforce conventions around exported comments.
+
+issues:
+  include:
+    - EXC0012 # revive: Exported vars should have a docstring.
+    - EXC0014 # revive: Exported vars's docstring should start with its name.
 
 linters:
   enable-all: true
   disable:
   # Global variables are used in many places throughout the code base.
   - gochecknoglobals
-
-  # Some lines are over 80 characters on purpose and we don't want to make them
-  # even longer by marking them as 'nolint'.
-  - lll
 
   # We want to allow short variable names.
   - varnamelen
@@ -94,7 +100,6 @@ linters:
   - importas
   - interfacebloat
   - protogetter
-  - revive
   - depguard
   - mnd
   - perfsprint
