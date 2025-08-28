@@ -11,12 +11,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -568,12 +568,12 @@ func (r *routerClient) trackPayment(ctx context.Context,
 				// NotFound is only expected as a response to
 				// TrackPayment.
 				case codes.NotFound:
-					err = channeldb.ErrPaymentNotInitiated
+					err = paymentsdb.ErrPaymentNotInitiated
 
 				// NotFound is only expected as a response to
 				// SendPayment.
 				case codes.AlreadyExists:
-					err = channeldb.ErrAlreadyPaid
+					err = paymentsdb.ErrAlreadyPaid
 				}
 
 				errorChan <- err
