@@ -209,12 +209,12 @@ type LightningClient interface {
 
 	// SendCoins sends the passed amount of (or all) coins to the passed
 	// address. Either amount or sendAll must be specified, while
-	// confTarget, satsPerByte are optional and may be set to zero in which
+	// confTarget, satsPerVByte are optional and may be set to zero in which
 	// case automatic conf target and fee will be used. Returns the tx id
 	// upon success.
 	SendCoins(ctx context.Context, addr btcutil.Address,
 		amount btcutil.Amount, sendAll bool, confTarget int32,
-		satsPerByte int64, label string) (string, error)
+		satsPerVByte chainfee.SatPerVByte, label string) (string, error)
 
 	// ChannelBalance returns a summary of our channel balances.
 	ChannelBalance(ctx context.Context) (*ChannelBalance, error)
@@ -3592,12 +3592,12 @@ func (s *lightningClient) Connect(ctx context.Context, peer route.Vertex,
 }
 
 // SendCoins sends the passed amount of (or all) coins to the passed address.
-// Either amount or sendAll must be specified, while confTarget, satsPerByte are
-// optional and may be set to zero in which case automatic conf target and fee
-// will be used. Returns the tx id upon success.
+// Either amount or sendAll must be specified, while confTarget, satsPerVByte
+// are optional and may be set to zero in which case automatic conf target and
+// fee will be used. Returns the tx id upon success.
 func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
 	amount btcutil.Amount, sendAll bool, confTarget int32,
-	satsPerByte int64, label string) (string, error) {
+	satsPerVByte chainfee.SatPerVByte, label string) (string, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -3605,12 +3605,12 @@ func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
 
 	req := &lnrpc.SendCoinsRequest{
-		Addr:       addr.String(),
-		Amount:     int64(amount),
-		TargetConf: confTarget,
-		SatPerByte: satsPerByte,
-		SendAll:    sendAll,
-		Label:      label,
+		Addr:        addr.String(),
+		Amount:      int64(amount),
+		TargetConf:  confTarget,
+		SatPerVbyte: uint64(satsPerVByte),
+		SendAll:     sendAll,
+		Label:       label,
 	}
 
 	resp, err := s.client.SendCoins(rpcCtx, req)
