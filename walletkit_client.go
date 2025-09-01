@@ -809,8 +809,8 @@ func (m *walletKitClient) BumpFee(ctx context.Context, op wire.OutPoint,
 			TxidBytes:   op.Hash[:],
 			OutputIndex: op.Index,
 		},
-		SatPerVbyte: uint64(feeRate.FeePerVByte()),
-		Immediate:   false,
+		SatPerKw:  uint64(feeRate),
+		Immediate: false,
 	}
 
 	for _, opt := range opts {
