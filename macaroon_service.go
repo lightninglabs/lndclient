@@ -54,9 +54,9 @@ var (
 // It is also a wrapper for a macaroon.Service and uses this to create a
 // default macaroon for the caller if stateless mode has not been specified.
 type MacaroonService struct {
-	cfg *MacaroonServiceConfig
-
 	*macaroons.Service
+
+	cfg *MacaroonServiceConfig
 }
 
 // MacaroonServiceConfig holds configuration values used by the MacaroonService.

@@ -8,6 +8,6 @@ package lndclient
 // to unify the way we manage dependencies. So we define our build tool
 // dependencies here and pin the version in go.mod.
 import (
-	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
+	_ "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
 	_ "github.com/rinchsan/gosimports/cmd/gosimports"
 )

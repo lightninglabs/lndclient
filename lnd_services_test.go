@@ -175,6 +175,7 @@ func TestLndVersionCheckComparison(t *testing.T) {
 type lockLNDMock struct {
 	lnrpc.LightningClient
 	StateClient
+
 	callCount int
 	errors    []error
 	stateErr  error
