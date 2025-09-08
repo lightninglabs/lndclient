@@ -1,4 +1,4 @@
-FROM golang:1.23.6-bookworm
+FROM golang:1.24.6-bookworm
 
 RUN apt-get update && apt-get install -y git
 ENV GOCACHE=/tmp/build/.cache
@@ -11,7 +11,8 @@ RUN cd /tmp \
   && mkdir -p /tmp/build/.cache \
   && mkdir -p /tmp/build/.modcache \
   && cd /tmp/tools \
-  && go install -trimpath github.com/golangci/golangci-lint/cmd/golangci-lint \
+  && go install -trimpath \
+        github.com/golangci/golangci-lint/v2/cmd/golangci-lint \
   && chmod -R 777 /tmp/build/
 
 WORKDIR /build

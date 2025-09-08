@@ -246,6 +246,7 @@ func TestMacaroonGeneration(t *testing.T) {
 
 type testMacaroonService struct {
 	*macaroons.Service
+
 	rks bakery.RootKeyStore
 }
 
@@ -284,9 +285,9 @@ func (s *testMacaroonService) stop() error {
 }
 
 type mockSignerClient struct {
-	sharedKey []byte
-
 	SignerClient
+
+	sharedKey []byte
 }
 
 func (m *mockSignerClient) DeriveSharedKey(_ context.Context,
