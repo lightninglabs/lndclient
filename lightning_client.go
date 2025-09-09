@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -23,7 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
-	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"google.golang.org/grpc"
@@ -1344,12 +1344,12 @@ var (
 	// PaymentResultAlreadyPaid is the string result returned by SendPayment
 	// when the payment was already completed in a previous SendPayment
 	// call.
-	PaymentResultAlreadyPaid = paymentsdb.ErrAlreadyPaid.Error()
+	PaymentResultAlreadyPaid = channeldb.ErrAlreadyPaid.Error()
 
 	// PaymentResultInFlight is the string result returned by SendPayment
 	// when the payment was initiated in a previous SendPayment call and
 	// still in flight.
-	PaymentResultInFlight = paymentsdb.ErrPaymentInFlight.Error()
+	PaymentResultInFlight = channeldb.ErrPaymentInFlight.Error()
 
 	paymentPollInterval = 3 * time.Second
 )
