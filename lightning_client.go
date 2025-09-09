@@ -81,6 +81,13 @@ func WithRemoteMaxHtlc(maxHtlc uint32) OpenChannelOption {
 	}
 }
 
+// WithOpenChannelFeerate specifies feerate in sats/kw for OpenChannel request.
+func WithOpenChannelFeerate(satPerKw chainfee.SatPerKWeight) OpenChannelOption {
+	return func(r *lnrpc.OpenChannelRequest) {
+		r.SatPerKw = uint64(satPerKw)
+	}
+}
+
 // LightningClient exposes base lightning functionality.
 type LightningClient interface {
 	ServiceClient[lnrpc.LightningClient]
@@ -209,12 +216,13 @@ type LightningClient interface {
 
 	// SendCoins sends the passed amount of (or all) coins to the passed
 	// address. Either amount or sendAll must be specified, while
-	// confTarget, satsPerByte are optional and may be set to zero in which
+	// confTarget, satsPerVByte are optional and may be set to zero in which
 	// case automatic conf target and fee will be used. Returns the tx id
 	// upon success.
 	SendCoins(ctx context.Context, addr btcutil.Address,
 		amount btcutil.Amount, sendAll bool, confTarget int32,
-		satsPerByte int64, label string) (string, error)
+		satsPerVByte chainfee.SatPerVByte, label string,
+		opts ...SendCoinsOption) (string, error)
 
 	// ChannelBalance returns a summary of our channel balances.
 	ChannelBalance(ctx context.Context) (*ChannelBalance, error)
@@ -3149,10 +3157,19 @@ func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 // CloseChannelRequest.
 type CloseChannelOption func(r *lnrpc.CloseChannelRequest)
 
-// SatPerVbyte is an option for setting the fee rate of a CloseChannelRequest.
+// SatPerVbyte is an option for setting the fee rate of a CloseChannelRequest
+// specified in sats/vbyte.
 func SatPerVbyte(satPerVbyte chainfee.SatPerVByte) CloseChannelOption {
 	return func(r *lnrpc.CloseChannelRequest) {
-		r.SatPerVbyte = uint64(satPerVbyte)
+		r.SatPerKw = uint64(satPerVbyte.FeePerKWeight())
+	}
+}
+
+// SatPerKw is an option for setting the fee rate of a CloseChannelRequest
+// specified in sats/kw.
+func SatPerKw(satPerKw chainfee.SatPerKWeight) CloseChannelOption {
+	return func(r *lnrpc.CloseChannelRequest) {
+		r.SatPerKw = uint64(satPerKw)
 	}
 }
 
@@ -3160,7 +3177,15 @@ func SatPerVbyte(satPerVbyte chainfee.SatPerVByte) CloseChannelOption {
 // willing to pay on a CloseChannelRequest.
 func MaxFeePerVbyte(maxFeePerVbyte chainfee.SatPerVByte) CloseChannelOption {
 	return func(r *lnrpc.CloseChannelRequest) {
-		r.MaxFeePerVbyte = uint64(maxFeePerVbyte)
+		r.MaxFeePerKw = uint64(maxFeePerVbyte.FeePerKWeight())
+	}
+}
+
+// MaxFeePerKw is an option for setting the maximum fee rate a closer is
+// willing to pay on a CloseChannelRequest.
+func MaxFeePerKw(maxFeePerKw chainfee.SatPerKWeight) CloseChannelOption {
+	return func(r *lnrpc.CloseChannelRequest) {
+		r.MaxFeePerKw = uint64(maxFeePerKw)
 	}
 }
 
@@ -3591,13 +3616,26 @@ func (s *lightningClient) Connect(ctx context.Context, peer route.Vertex,
 	return err
 }
 
+// SendCoinsOption is an option used in SendCoins call.
+type SendCoinsOption func(*lnrpc.SendCoinsRequest)
+
+// WithSendCoinsFeerate specifies feerate in sats/kw for SendCoins request.
+// To use it pass satsPerVByte=0 and WithSendCoinsFeerate(desired_feerate) to
+// SendCoins.
+func WithSendCoinsFeerate(satPerKw chainfee.SatPerKWeight) SendCoinsOption {
+	return func(req *lnrpc.SendCoinsRequest) {
+		req.SatPerKw = uint64(satPerKw)
+	}
+}
+
 // SendCoins sends the passed amount of (or all) coins to the passed address.
-// Either amount or sendAll must be specified, while confTarget, satsPerByte are
-// optional and may be set to zero in which case automatic conf target and fee
-// will be used. Returns the tx id upon success.
+// Either amount or sendAll must be specified, while confTarget, satsPerVByte
+// are optional and may be set to zero in which case automatic conf target and
+// fee will be used. Returns the tx id upon success.
 func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
 	amount btcutil.Amount, sendAll bool, confTarget int32,
-	satsPerByte int64, label string) (string, error) {
+	satsPerVByte chainfee.SatPerVByte, label string,
+	opts ...SendCoinsOption) (string, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
@@ -3608,9 +3646,13 @@ func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
 		Addr:       addr.String(),
 		Amount:     int64(amount),
 		TargetConf: confTarget,
-		SatPerByte: satsPerByte,
+		SatPerKw:   uint64(satsPerVByte.FeePerKWeight()),
 		SendAll:    sendAll,
 		Label:      label,
+	}
+
+	for _, opt := range opts {
+		opt(req)
 	}
 
 	resp, err := s.client.SendCoins(rpcCtx, req)
