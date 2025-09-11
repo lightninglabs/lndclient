@@ -3138,6 +3138,10 @@ func (p *PendingCloseUpdate) CloseTxid() chainhash.Hash {
 type ChannelClosedUpdate struct {
 	// CloseTx is the closing transaction id.
 	CloseTx chainhash.Hash
+
+	// NumPendingHtlcs is the number of pending htlcs that we have
+	// present while a channel close with the NoWait option was in progress.
+	NumPendingHtlcs int32
 }
 
 // CloseTxid returns the closing txid of the channel.
@@ -3288,6 +3292,21 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 				// complete, which is handled above.
 				closeUpdate := &ChannelClosedUpdate{
 					CloseTx: *txid,
+				}
+				sendUpdate(closeUpdate)
+
+			case *lnrpc.CloseStatusUpdate_CloseInstant:
+				instantUpdate := update.CloseInstant
+				if instantUpdate == nil {
+					sendErr(errors.New("instant update " +
+						"unavailable"))
+
+					return
+				}
+
+				numPendingHtlcs := instantUpdate.NumPendingHtlcs
+				closeUpdate := &ChannelClosedUpdate{
+					NumPendingHtlcs: numPendingHtlcs,
 				}
 				sendUpdate(closeUpdate)
 
