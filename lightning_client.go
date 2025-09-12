@@ -3121,17 +3121,31 @@ func (s *lightningClient) OpenChannelStream(ctx context.Context,
 type CloseChannelUpdate interface {
 	// CloseTxid returns the closing txid of the channel.
 	CloseTxid() chainhash.Hash
+
+	// NumberOfPendingHtlcs is the number of pending htlcs that we have
+	// present while a channel close with the NoWait option was in progress.
+	NumberOfPendingHtlcs() int32
 }
 
 // PendingCloseUpdate indicates that our closing transaction has been broadcast.
 type PendingCloseUpdate struct {
 	// CloseTx is the closing transaction id.
 	CloseTx chainhash.Hash
+
+	// NumPendingHtlcs is the number of pending htlcs that we have
+	// present while a channel close with the NoWait option was in progress.
+	NumPendingHtlcs int32
 }
 
 // CloseTxid returns the closing txid of the channel.
 func (p *PendingCloseUpdate) CloseTxid() chainhash.Hash {
 	return p.CloseTx
+}
+
+// NumberOfPendingHtlcs returns the number of pending htlcs on a pending close
+// channel.
+func (p *PendingCloseUpdate) NumberOfPendingHtlcs() int32 {
+	return p.NumPendingHtlcs
 }
 
 // ChannelClosedUpdate indicates that our channel close has confirmed on chain.
@@ -3147,6 +3161,12 @@ type ChannelClosedUpdate struct {
 // CloseTxid returns the closing txid of the channel.
 func (p *ChannelClosedUpdate) CloseTxid() chainhash.Hash {
 	return p.CloseTx
+}
+
+// NumberOfPendingHtlcs returns the number of pending htlcs on a pending close
+// channel.
+func (p *ChannelClosedUpdate) NumberOfPendingHtlcs() int32 {
+	return p.NumPendingHtlcs
 }
 
 // CloseChannelOption is a functional type for an option that modifies a
@@ -3305,7 +3325,7 @@ func (s *lightningClient) CloseChannel(ctx context.Context,
 				}
 
 				numPendingHtlcs := instantUpdate.NumPendingHtlcs
-				closeUpdate := &ChannelClosedUpdate{
+				closeUpdate := &PendingCloseUpdate{
 					NumPendingHtlcs: numPendingHtlcs,
 				}
 				sendUpdate(closeUpdate)
