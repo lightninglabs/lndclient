@@ -465,6 +465,9 @@ type ChannelInfo struct {
 	// CustomChannelData is an optional field that can be used to store
 	// data for custom channels.
 	CustomChannelData []byte
+
+	// PeerAlias is the alias of the peer node.
+	PeerAlias string
 }
 
 func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
@@ -509,6 +512,7 @@ func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 		ZeroConf:          channel.ZeroConf,
 		ZeroConfScid:      channel.ZeroConfConfirmedScid,
 		CustomChannelData: channel.CustomChannelData,
+		PeerAlias:         channel.PeerAlias,
 	}
 
 	chanInfo.AliasScids = make([]uint64, len(channel.AliasScids))
