@@ -89,6 +89,11 @@ type RouterClient interface {
 	// will not be communicated to the channel peer via any message.
 	XDeleteLocalChanAlias(ctx context.Context, alias,
 		baseScid lnwire.ShortChannelID) error
+
+	// XFindBaseLocalChanAlias is an experimental API that looks up the base
+	// scid for a local chan alias that was registered.
+	XFindBaseLocalChanAlias(ctx context.Context,
+		alias lnwire.ShortChannelID) (lnwire.ShortChannelID, error)
 }
 
 // PaymentStatus describe the state of a payment.
@@ -1173,4 +1178,26 @@ func (r *routerClient) XDeleteLocalChanAlias(ctx context.Context, alias,
 		},
 	)
 	return err
+}
+
+// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+// for a local chan alias that was registered.
+func (r *routerClient) XFindBaseLocalChanAlias(ctx context.Context,
+	alias lnwire.ShortChannelID) (lnwire.ShortChannelID, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	res, err := r.client.XFindBaseLocalChanAlias(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.FindBaseAliasRequest{
+			Alias: alias.ToUint64(),
+		},
+	)
+
+	if err != nil {
+		return lnwire.ShortChannelID{}, err
+	}
+
+	return lnwire.NewShortChanIDFromInt(res.Base), nil
 }
