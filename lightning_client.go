@@ -2431,6 +2431,9 @@ type ForwardingHistoryRequest struct {
 
 	// Offset is the index from which to start querying.
 	Offset uint32
+
+	// PeerAliasLookup enables looking up the alias
+	PeerAliasLookup bool
 }
 
 // ForwardingHistoryResponse contains the response to a forwarding history
@@ -2462,8 +2465,14 @@ type ForwardingEvent struct {
 	// millisatoshis.
 	AmountMsatOut lnwire.MilliSatoshi
 
-	// FeeMsat is the amount of fees earned in millisatoshis,
+	// FeeMsat is the amount of fees earned in millisatoshis.
 	FeeMsat lnwire.MilliSatoshi
+
+	// The peer alias of the incoming channel.
+	PeerAliasIn string
+
+	// The peer alias of the outgoing channel
+	PeerAliasOut string
 }
 
 // ForwardingHistory returns a set of forwarding events for the period queried.
@@ -2478,10 +2487,11 @@ func (s *lightningClient) ForwardingHistory(ctx context.Context,
 	response, err := s.client.ForwardingHistory(
 		s.adminMac.WithMacaroonAuth(rpcCtx),
 		&lnrpc.ForwardingHistoryRequest{
-			StartTime:    uint64(req.StartTime.Unix()),
-			EndTime:      uint64(req.EndTime.Unix()),
-			IndexOffset:  req.Offset,
-			NumMaxEvents: req.MaxEvents,
+			StartTime:       uint64(req.StartTime.Unix()),
+			EndTime:         uint64(req.EndTime.Unix()),
+			IndexOffset:     req.Offset,
+			NumMaxEvents:    req.MaxEvents,
+			PeerAliasLookup: req.PeerAliasLookup,
 		},
 	)
 	if err != nil {
@@ -2497,6 +2507,8 @@ func (s *lightningClient) ForwardingHistory(ctx context.Context,
 			AmountMsatIn:  lnwire.MilliSatoshi(event.AmtInMsat),
 			AmountMsatOut: lnwire.MilliSatoshi(event.AmtOutMsat),
 			FeeMsat:       lnwire.MilliSatoshi(event.FeeMsat),
+			PeerAliasIn:   event.PeerAliasIn,
+			PeerAliasOut:  event.PeerAliasOut,
 		}
 	}
 
