@@ -6,10 +6,10 @@ require (
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
-	github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318
-	github.com/btcsuite/btcwallet v0.16.13
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
+	github.com/btcsuite/btcwallet v0.16.15-0.20250805011126-a3632ae48ab3
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.6
-	github.com/lightningnetwork/lnd v0.19.0-beta
+	github.com/lightningnetwork/lnd v0.19.3-beta
 	github.com/lightningnetwork/lnd/kvdb v1.4.16
 	github.com/stretchr/testify v1.10.0
 	google.golang.org/grpc v1.59.0
@@ -49,7 +49,6 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fergusstrange/embedded-postgres v1.25.0 // indirect
-	github.com/go-errors/errors v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
