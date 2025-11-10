@@ -361,3 +361,27 @@ func TestCustomMacaroonHex(t *testing.T) {
 	_, err = NewLndServices(testCfg)
 	require.Error(t, err, "must set only one")
 }
+
+// TestIsChainNotifierStartingErr ensures we correctly detect the startup lag
+// error returned by lnd v0.20.0-rc3+.
+func TestIsChainNotifierStartingErr(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, isChainNotifierStartingErr(
+		status.Error(codes.Unavailable, chainNotifierStartupMessage),
+	))
+
+	require.True(t, isChainNotifierStartingErr(
+		status.Error(codes.Unknown, chainNotifierStartupMessage),
+	))
+
+	require.True(t, isChainNotifierStartingErr(
+		status.Error(codes.Unavailable, "some other error"),
+	))
+
+	require.False(t, isChainNotifierStartingErr(nil))
+
+	require.False(t, isChainNotifierStartingErr(
+		status.Error(codes.Unknown, "some other error"),
+	))
+}
