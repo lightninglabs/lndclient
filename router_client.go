@@ -11,12 +11,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -89,6 +89,11 @@ type RouterClient interface {
 	// will not be communicated to the channel peer via any message.
 	XDeleteLocalChanAlias(ctx context.Context, alias,
 		baseScid lnwire.ShortChannelID) error
+
+	// XFindBaseLocalChanAlias is an experimental API that looks up the base
+	// scid for a local chan alias that was registered.
+	XFindBaseLocalChanAlias(ctx context.Context,
+		alias lnwire.ShortChannelID) (lnwire.ShortChannelID, error)
 }
 
 // PaymentStatus describe the state of a payment.
@@ -568,12 +573,12 @@ func (r *routerClient) trackPayment(ctx context.Context,
 				// NotFound is only expected as a response to
 				// TrackPayment.
 				case codes.NotFound:
-					err = channeldb.ErrPaymentNotInitiated
+					err = paymentsdb.ErrPaymentNotInitiated
 
 				// NotFound is only expected as a response to
 				// SendPayment.
 				case codes.AlreadyExists:
-					err = channeldb.ErrAlreadyPaid
+					err = paymentsdb.ErrAlreadyPaid
 				}
 
 				errorChan <- err
@@ -1173,4 +1178,26 @@ func (r *routerClient) XDeleteLocalChanAlias(ctx context.Context, alias,
 		},
 	)
 	return err
+}
+
+// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+// for a local chan alias that was registered.
+func (r *routerClient) XFindBaseLocalChanAlias(ctx context.Context,
+	alias lnwire.ShortChannelID) (lnwire.ShortChannelID, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	res, err := r.client.XFindBaseLocalChanAlias(
+		r.routerKitMac.WithMacaroonAuth(rpcCtx),
+		&routerrpc.FindBaseAliasRequest{
+			Alias: alias.ToUint64(),
+		},
+	)
+
+	if err != nil {
+		return lnwire.ShortChannelID{}, err
+	}
+
+	return lnwire.NewShortChanIDFromInt(res.Base), nil
 }
