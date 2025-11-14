@@ -3,6 +3,7 @@ package lndclient
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // NotifierOptions is a set of functional options that allow callers to further
@@ -37,6 +40,19 @@ func DefaultNotifierOptions() *NotifierOptions {
 // NotifierOption is a functional option that allows a caller to modify the
 // events received from the notifier.
 type NotifierOption func(*NotifierOptions)
+
+const (
+	// chainNotifierStartupMessage matches the error string returned by lnd
+	// v0.20.0-rc3+ when a ChainNotifier RPC is invoked before the
+	// sub-server finishes initialization.
+	chainNotifierStartupMessage = "chain notifier RPC is still in the " +
+		"process of starting"
+
+	// chainNotifierRetryBackoff defines the delay between successive
+	// subscription attempts while waiting for the ChainNotifier sub-server
+	// to become operational.
+	chainNotifierRetryBackoff = 500 * time.Millisecond
+)
 
 // WithIncludeBlock is an optional argument that allows the caller to specify
 // that the block that mined a transaction should be included in the response.
@@ -133,11 +149,23 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 		}
 	}
 
-	macaroonAuth := s.chainMac.WithMacaroonAuth(ctx)
-	resp, err := s.client.RegisterSpendNtfn(macaroonAuth, &chainrpc.SpendRequest{
-		HeightHint: uint32(heightHint),
-		Outpoint:   rpcOutpoint,
-		Script:     pkScript,
+	var (
+		resp chainrpc.ChainNotifier_RegisterSpendNtfnClient
+		err  error
+	)
+
+	// lnd v0.20.0-rc3 changed the startup ordering so the ChainNotifier
+	// sub-server can report "still starting" for a short window. Retry the
+	// registration in that case to avoid aborting clients that subscribe
+	// immediately at startup.
+	err = s.retryChainNotifierCall(ctx, func() error {
+		macaroonAuth := s.chainMac.WithMacaroonAuth(ctx)
+		resp, err = s.client.RegisterSpendNtfn(macaroonAuth, &chainrpc.SpendRequest{
+			HeightHint: uint32(heightHint),
+			Outpoint:   rpcOutpoint,
+			Script:     pkScript,
+		})
+		return err
 	})
 	if err != nil {
 		return nil, nil, err
@@ -251,15 +279,25 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 	if txid != nil {
 		txidSlice = txid[:]
 	}
-	confStream, err := s.client.RegisterConfirmationsNtfn(
-		s.chainMac.WithMacaroonAuth(ctx), &chainrpc.ConfRequest{
-			Script:       pkScript,
-			NumConfs:     uint32(numConfs),
-			HeightHint:   uint32(heightHint),
-			Txid:         txidSlice,
-			IncludeBlock: opts.IncludeBlock,
-		},
+	var (
+		confStream chainrpc.ChainNotifier_RegisterConfirmationsNtfnClient
+		err        error
 	)
+	// The confirmation RPC is also subject to the post-v0.20.0-rc3 startup
+	// ordering change, so we retry here until lnd reports the sub-server
+	// ready.
+	err = s.retryChainNotifierCall(ctx, func() error {
+		confStream, err = s.client.RegisterConfirmationsNtfn(
+			s.chainMac.WithMacaroonAuth(ctx), &chainrpc.ConfRequest{
+				Script:       pkScript,
+				NumConfs:     uint32(numConfs),
+				HeightHint:   uint32(heightHint),
+				Txid:         txidSlice,
+				IncludeBlock: opts.IncludeBlock,
+			},
+		)
+		return err
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -362,9 +400,18 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 func (s *chainNotifierClient) RegisterBlockEpochNtfn(ctx context.Context) (
 	chan int32, chan error, error) {
 
-	blockEpochClient, err := s.client.RegisterBlockEpochNtfn(
-		s.chainMac.WithMacaroonAuth(ctx), &chainrpc.BlockEpoch{},
+	var (
+		blockEpochClient chainrpc.ChainNotifier_RegisterBlockEpochNtfnClient
+		err              error
 	)
+	// Block epoch subscriptions similarly need to survive the "still
+	// starting" period introduced in lnd v0.20.0-rc3.
+	err = s.retryChainNotifierCall(ctx, func() error {
+		blockEpochClient, err = s.client.RegisterBlockEpochNtfn(
+			s.chainMac.WithMacaroonAuth(ctx), &chainrpc.BlockEpoch{},
+		)
+		return err
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -392,4 +439,72 @@ func (s *chainNotifierClient) RegisterBlockEpochNtfn(ctx context.Context) (
 	}()
 
 	return blockEpochChan, blockErrorChan, nil
+}
+
+// retryChainNotifierCall executes the passed RPC invocation, retrying while
+// lnd reports that the ChainNotifier sub-server is still initialising.
+//
+// Prior to v0.20.0-rc3 the ChainNotifier sub-server finished initialization
+// before dependent services started, so a single RPC attempt succeeded. From
+// rc3 (LND commit c6f458e478f9ef2cf1d394972bfbc512862c6707) onwards lnd starts
+// the notifier later in the daemon lifecycle to avoid rescans from stale
+// heights. During the brief gap between client connection and notifier
+// readiness lnd returns the string "chain notifier RPC is still in the process
+// of starting" wrapped in an Unknown gRPC status. Clients that interact with
+// lnd immediately after it connects - such as Loop during integration testing -
+// would previously treat that error as fatal and abort startup, even though
+// retrying shortly after would succeed.
+//
+// This helper centralises the retry policy: when the specific "still starting"
+// error is encountered we back off briefly and reissue the RPC. Non-startup
+// errors are returned to the caller unchanged, and the caller's context
+// controls the overall deadline so shutdown conditions are respected.
+func (s *chainNotifierClient) retryChainNotifierCall(ctx context.Context,
+	call func() error) error {
+
+	for {
+		err := call()
+		if err == nil {
+			return nil
+		}
+
+		if !isChainNotifierStartingErr(err) {
+			return err
+		}
+
+		log.Warnf("Chain notifier RPC not ready yet, retrying: %v", err)
+
+		select {
+		case <-time.After(chainNotifierRetryBackoff):
+			continue
+
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// detectChainNotifierStartupError reports whether err is due to the lnd
+// ChainNotifier sub-server still starting up. Starting with lnd v0.20.0-rc3
+// the notifier is initialised later in the daemon lifecycle, and the RPC layer
+// surfaces this as an Unknown gRPC status that contains the message defined in
+// chainNotifierStartupMessage. There is a PR in LND to return code Unavailable
+// instead of Unknown: https://github.com/lightningnetwork/lnd/pull/10352
+func isChainNotifierStartingErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// gRPC code Unavailable means "the server can't handle this request
+	// now, retry later". LND's chain notifier returns this error when
+	// the server is starting.
+	// See https://github.com/lightningnetwork/lnd/pull/10352
+	st, ok := status.FromError(err)
+	if ok && st.Code() == codes.Unavailable {
+		return true
+	}
+
+	// TODO(ln-v0.20.0) remove the string fallback once lndclient depends on
+	// a version of lnd that returns codes.Unavailable for this condition.
+	return strings.Contains(err.Error(), chainNotifierStartupMessage)
 }
