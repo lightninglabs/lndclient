@@ -101,6 +101,25 @@ type SignerClient interface {
 
 	// MuSig2Cleanup removes a session from memory to free up resources.
 	MuSig2Cleanup(ctx context.Context, sessionID [32]byte) error
+
+	// MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce
+	// for a session identified by its ID. This is an alternative to
+	// MuSig2RegisterNonces and is used when a coordinator has already
+	// aggregated all individual nonces and wants to distribute the combined
+	// nonce to participants.
+	//
+	// NOTE: This method is mutually exclusive with MuSig2RegisterNonces for
+	// the same session. Once this method is called, MuSig2RegisterNonces
+	// will return an error if called later for the same session.
+	MuSig2RegisterCombinedNonce(ctx context.Context, sessionID [32]byte,
+		combinedNonce [66]byte) error
+
+	// MuSig2GetCombinedNonce retrieves the combined nonce for a session
+	// identified by its ID. This will be available after either all
+	// individual nonces have been registered via MuSig2RegisterNonces, or a
+	// combined nonce has been registered via MuSig2RegisterCombinedNonce.
+	MuSig2GetCombinedNonce(ctx context.Context,
+		sessionID [32]byte) ([66]byte, error)
 }
 
 // SignDescriptor houses the necessary information required to successfully
@@ -764,4 +783,56 @@ func (s *signerClient) MuSig2Cleanup(ctx context.Context,
 	_, err := s.client.MuSig2Cleanup(rpcCtx, req)
 
 	return err
+}
+
+// MuSig2RegisterCombinedNonce registers a pre-aggregated combined nonce for a
+// session identified by its ID. This is an alternative to MuSig2RegisterNonces
+// and is used when a coordinator has already aggregated all individual nonces
+// and wants to distribute the combined nonce to participants.
+func (s *signerClient) MuSig2RegisterCombinedNonce(ctx context.Context,
+	sessionID [32]byte, combinedNonce [66]byte) error {
+
+	req := &signrpc.MuSig2RegisterCombinedNonceRequest{
+		SessionId:           sessionID[:],
+		CombinedPublicNonce: combinedNonce[:],
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
+	_, err := s.client.MuSig2RegisterCombinedNonce(rpcCtx, req)
+
+	return err
+}
+
+// MuSig2GetCombinedNonce retrieves the combined nonce for a session identified
+// by its ID. This will be available after either all individual nonces have
+// been registered via MuSig2RegisterNonces, or a combined nonce has been
+// registered via MuSig2RegisterCombinedNonce.
+func (s *signerClient) MuSig2GetCombinedNonce(ctx context.Context,
+	sessionID [32]byte) ([66]byte, error) {
+
+	req := &signrpc.MuSig2GetCombinedNonceRequest{
+		SessionId: sessionID[:],
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.signerMac.WithMacaroonAuth(rpcCtx)
+	resp, err := s.client.MuSig2GetCombinedNonce(rpcCtx, req)
+	if err != nil {
+		return [66]byte{}, err
+	}
+
+	if len(resp.CombinedPublicNonce) != 66 {
+		return [66]byte{}, fmt.Errorf("unexpected combined nonce "+
+			"size: %v", len(resp.CombinedPublicNonce))
+	}
+
+	var combinedNonce [66]byte
+	copy(combinedNonce[:], resp.CombinedPublicNonce)
+
+	return combinedNonce, nil
 }
