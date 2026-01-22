@@ -332,7 +332,15 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 
 	cleanupConn := func() {
 		closeErr := conn.Close()
-		if closeErr != nil {
+		switch {
+		case closeErr == nil:
+			// No error.
+
+		case errors.Is(closeErr, grpc.ErrClientConnClosing):
+			log.Debugf("LND connection is already closing: %v",
+				closeErr)
+
+		default:
 			log.Errorf("Error closing lnd connection: %v", closeErr)
 		}
 	}
