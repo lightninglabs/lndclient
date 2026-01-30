@@ -353,6 +353,10 @@ type Info struct {
 	// public channel graph.
 	SyncedToGraph bool
 
+	// WalletSyncedToChain is true if the wallet has indexed all
+	// transactions of the best block.
+	WalletSyncedToChain bool
+
 	// ActiveChannels is the number of active channels we have.
 	ActiveChannels uint32
 
@@ -1467,6 +1471,7 @@ func newInfo(resp *lnrpc.GetInfoResponse) (*Info, error) {
 		Uris:                resp.Uris,
 		SyncedToChain:       resp.SyncedToChain,
 		SyncedToGraph:       resp.SyncedToGraph,
+		WalletSyncedToChain: resp.WalletSynced,
 		ActiveChannels:      resp.NumActiveChannels,
 		InactiveChannels:    resp.NumInactiveChannels,
 		PendingChannels:     resp.NumPendingChannels,
