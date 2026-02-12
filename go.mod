@@ -9,7 +9,7 @@ require (
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
 	github.com/btcsuite/btcwallet v0.16.17
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.6
-	github.com/lightningnetwork/lnd v0.20.0-beta
+	github.com/lightningnetwork/lnd v0.20.1-beta
 	github.com/lightningnetwork/lnd/kvdb v1.4.16
 	github.com/stretchr/testify v1.10.0
 	google.golang.org/grpc v1.59.0
@@ -103,7 +103,7 @@ require (
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.9 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.11 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.12-0.20260113193010-8565d12e40b1 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/tlv v1.3.2 // indirect
 	github.com/lightningnetwork/lnd/tor v1.1.6 // indirect
@@ -193,4 +193,4 @@ require (
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
 
-go 1.24.9
+go 1.25.5
