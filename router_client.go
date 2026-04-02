@@ -395,6 +395,19 @@ type InterceptedHtlcResponse struct {
 	// intercepted.
 	Action InterceptorAction
 
+	// FailureMessage is a pre-encrypted onion error to return when the
+	// action is fail. When set, lnd relays the bytes using
+	// IntermediateEncrypt, preserving the error attribution of the
+	// original encrypter.
+	FailureMessage []byte
+
+	// FailureCode is the failure code to return when the action is
+	// fail. When non-zero, lnd constructs an onion error attributed to
+	// the intercepting node using EncryptFirstHop. When zero and
+	// FailureMessage is also empty, lnd defaults to
+	// TemporaryChannelFailure.
+	FailureCode lnrpc.Failure_FailureCode
+
 	// IncomingAmount is the amount that should be used to validate the
 	// incoming htlc. This might be different from the actual HTLC amount
 	// for custom channels.
@@ -954,6 +967,22 @@ func rpcInterceptorResponse(request InterceptedHtlc,
 
 	case InterceptorActionFail:
 		rpcResp.Action = routerrpc.ResolveHoldForwardAction_FAIL
+
+		if len(response.FailureMessage) > 0 &&
+			response.FailureCode != 0 {
+
+			return nil, errors.New(
+				"failure_message and failure_code are " +
+					"mutually exclusive",
+			)
+		}
+
+		if len(response.FailureMessage) > 0 {
+			rpcResp.FailureMessage = response.FailureMessage
+		}
+		if response.FailureCode != 0 {
+			rpcResp.FailureCode = response.FailureCode
+		}
 
 	case InterceptorActionResume:
 		rpcResp.Action = routerrpc.ResolveHoldForwardAction_RESUME
