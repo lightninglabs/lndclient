@@ -64,6 +64,7 @@ func assertAddInvoiceArgs(t *testing.T, want, got []addInvoiceArg) {
 			t, want[i].in.CltvExpiry, got[i].in.CltvExpiry,
 		)
 		require.Equal(t, want[i].in.Private, got[i].in.Private)
+		require.Equal(t, want[i].in.IsAmp, got[i].in.IsAmp)
 
 		if len(want[i].in.RouteHints) == 0 {
 			require.Empty(t, got[i].in.RouteHints)
@@ -153,6 +154,26 @@ func TestLightningClientAddInvoice(t *testing.T) {
 		{in: fallbackAddrInvoice},
 	}
 
+	ampAddInvoiceData := &invoicesrpc.AddInvoiceData{
+		Memo:            validAddInvoiceData.Memo,
+		Value:           validAddInvoiceData.Value,
+		DescriptionHash: validAddInvoiceData.DescriptionHash,
+		Expiry:          validAddInvoiceData.Expiry,
+		CltvExpiry:      validAddInvoiceData.CltvExpiry,
+		Amp:             true,
+	}
+	ampInvoice := &lnrpc.Invoice{
+		Memo:            ampAddInvoiceData.Memo,
+		ValueMsat:       int64(ampAddInvoiceData.Value),
+		DescriptionHash: ampAddInvoiceData.DescriptionHash,
+		Expiry:          ampAddInvoiceData.Expiry,
+		CltvExpiry:      ampAddInvoiceData.CltvExpiry,
+		IsAmp:           true,
+	}
+	ampAddInvoiceArgs := []addInvoiceArg{
+		{in: ampInvoice},
+	}
+
 	routeHintAddInvoiceData := *validAddInvoiceData
 	routeHintAddInvoiceData.RouteHints = validRouteHints
 	routeHintInvoice := &lnrpc.Invoice{
@@ -224,6 +245,18 @@ func TestLightningClientAddInvoice(t *testing.T) {
 			invoice: &fallbackAddrAddInvoiceData,
 			expect: expect{
 				addInvoiceArgs: fallbackAddrAddInvoiceArgs,
+				hash:           validRHash,
+				payRequest:     validPayReq,
+			},
+		},
+		{
+			name: "amp invoice",
+			client: mockRPCClient{
+				addInvoice: validAddInvoice,
+			},
+			invoice: ampAddInvoiceData,
+			expect: expect{
+				addInvoiceArgs: ampAddInvoiceArgs,
 				hash:           validRHash,
 				payRequest:     validPayReq,
 			},

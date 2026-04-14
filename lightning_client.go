@@ -1680,6 +1680,7 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 		FallbackAddr:    in.FallbackAddr,
 		CltvExpiry:      in.CltvExpiry,
 		Private:         in.Private,
+		IsAmp:           in.Amp,
 		RouteHints:      routeHints,
 	}
 
