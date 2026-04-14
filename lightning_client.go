@@ -1665,6 +1665,13 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	routeHints, err := marshallRouteHints(in.RouteHints)
+	if err != nil {
+		return lntypes.Hash{}, "", fmt.Errorf(
+			"failed to marshal route hints: %v", err,
+		)
+	}
+
 	rpcIn := &lnrpc.Invoice{
 		Memo:            in.Memo,
 		ValueMsat:       int64(in.Value),
@@ -1672,6 +1679,7 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 		Expiry:          in.Expiry,
 		CltvExpiry:      in.CltvExpiry,
 		Private:         in.Private,
+		RouteHints:      routeHints,
 	}
 
 	if in.Preimage != nil {

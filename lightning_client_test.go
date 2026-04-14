@@ -40,6 +40,37 @@ func (m *mockRPCClient) AddInvoice(ctx context.Context, in *lnrpc.Invoice,
 	return m.addInvoice(in, opts...)
 }
 
+// assertAddInvoiceArgs verifies the recorded AddInvoice RPC calls.
+func assertAddInvoiceArgs(t *testing.T, want, got []addInvoiceArg) {
+	t.Helper()
+
+	require.Len(t, got, len(want))
+
+	for i := range want {
+		require.Equal(t, want[i].opts, got[i].opts)
+		require.Equal(t, want[i].in.Memo, got[i].in.Memo)
+		require.Equal(t, want[i].in.RPreimage, got[i].in.RPreimage)
+		require.Equal(t, want[i].in.RHash, got[i].in.RHash)
+		require.Equal(t, want[i].in.ValueMsat, got[i].in.ValueMsat)
+		require.Equal(
+			t, want[i].in.DescriptionHash,
+			got[i].in.DescriptionHash,
+		)
+		require.Equal(t, want[i].in.Expiry, got[i].in.Expiry)
+		require.Equal(
+			t, want[i].in.CltvExpiry, got[i].in.CltvExpiry,
+		)
+		require.Equal(t, want[i].in.Private, got[i].in.Private)
+
+		if len(want[i].in.RouteHints) == 0 {
+			require.Empty(t, got[i].in.RouteHints)
+			continue
+		}
+
+		require.Equal(t, want[i].in.RouteHints, got[i].in.RouteHints)
+	}
+}
+
 // TestLightningClientAddInvoice ensures that adding an invoice via
 // lightningClient is completed as expected.
 func TestLightningClientAddInvoice(t *testing.T) {
@@ -48,6 +79,9 @@ func TestLightningClientAddInvoice(t *testing.T) {
 	copy(validPreimage[:], "valid preimage")
 	var validRHash lntypes.Hash
 	copy(validRHash[:], "valid hash")
+	validRouteHints := testInvoiceRouteHints()
+	validRPCRouteHints := testRPCRouteHints(t)
+
 	validAddInvoiceData := &invoicesrpc.AddInvoiceData{
 		Memo:            "fake memo",
 		Preimage:        &validPreimage,
@@ -100,6 +134,22 @@ func TestLightningClientAddInvoice(t *testing.T) {
 		{in: privateInvoice},
 	}
 
+	routeHintAddInvoiceData := *validAddInvoiceData
+	routeHintAddInvoiceData.RouteHints = validRouteHints
+	routeHintInvoice := &lnrpc.Invoice{
+		Memo:            validAddInvoiceData.Memo,
+		RPreimage:       validAddInvoiceData.Preimage[:],
+		RHash:           validAddInvoiceData.Hash[:],
+		ValueMsat:       int64(validAddInvoiceData.Value),
+		DescriptionHash: validAddInvoiceData.DescriptionHash,
+		Expiry:          validAddInvoiceData.Expiry,
+		CltvExpiry:      validAddInvoiceData.CltvExpiry,
+		RouteHints:      validRPCRouteHints,
+	}
+	routeHintAddInvoiceArgs := []addInvoiceArg{
+		{in: routeHintInvoice},
+	}
+
 	errorAddInvoice := func(in *lnrpc.Invoice, opts ...grpc.CallOption) (
 		*lnrpc.AddInvoiceResponse, error) {
 
@@ -148,6 +198,18 @@ func TestLightningClientAddInvoice(t *testing.T) {
 			},
 		},
 		{
+			name: "invoice with route hints",
+			client: mockRPCClient{
+				addInvoice: validAddInvoice,
+			},
+			invoice: &routeHintAddInvoiceData,
+			expect: expect{
+				addInvoiceArgs: routeHintAddInvoiceArgs,
+				hash:           validRHash,
+				payRequest:     validPayReq,
+			},
+		},
+		{
 			name: "rpc client error",
 			client: mockRPCClient{
 				addInvoice: errorAddInvoice,
@@ -167,7 +229,7 @@ func TestLightningClientAddInvoice(t *testing.T) {
 			}
 
 			hash, payRequest, err := ln.AddInvoice(
-				context.Background(), test.invoice,
+				t.Context(), test.invoice,
 			)
 
 			// Check if an error (or no error) was received as
@@ -192,9 +254,9 @@ func TestLightningClientAddInvoice(t *testing.T) {
 
 			// Check if the expected args were passed to the RPC
 			// client call.
-			require.Equal(t, test.client.addInvoiceArgs,
-				test.expect.addInvoiceArgs,
-				"rpc client call was not made as expected",
+			assertAddInvoiceArgs(
+				t, test.expect.addInvoiceArgs,
+				test.client.addInvoiceArgs,
 			)
 		})
 	}
