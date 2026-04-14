@@ -65,6 +65,16 @@ func assertAddInvoiceArgs(t *testing.T, want, got []addInvoiceArg) {
 		)
 		require.Equal(t, want[i].in.Private, got[i].in.Private)
 		require.Equal(t, want[i].in.IsAmp, got[i].in.IsAmp)
+		require.Equal(t, want[i].in.IsBlinded, got[i].in.IsBlinded)
+
+		if want[i].in.BlindedPathConfig == nil {
+			require.Nil(t, got[i].in.BlindedPathConfig)
+		} else {
+			require.Equal(
+				t, want[i].in.BlindedPathConfig,
+				got[i].in.BlindedPathConfig,
+			)
+		}
 
 		if len(want[i].in.RouteHints) == 0 {
 			require.Empty(t, got[i].in.RouteHints)
@@ -185,6 +195,42 @@ func TestLightningClientAddInvoice(t *testing.T) {
 		{in: hashInvoice},
 	}
 
+	blindedAddInvoiceData := *validAddInvoiceData
+	blindedAddInvoiceData.BlindedPathCfg = &invoicesrpc.BlindedPathConfig{
+		MinNumPathHops: 5,
+	}
+	numHops := uint32(blindedAddInvoiceData.BlindedPathCfg.MinNumPathHops)
+	blindedInvoice := &lnrpc.Invoice{
+		Memo:            validAddInvoiceData.Memo,
+		RPreimage:       validAddInvoiceData.Preimage[:],
+		ValueMsat:       int64(validAddInvoiceData.Value),
+		DescriptionHash: validAddInvoiceData.DescriptionHash,
+		Expiry:          validAddInvoiceData.Expiry,
+		CltvExpiry:      validAddInvoiceData.CltvExpiry,
+		IsBlinded:       true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			NumHops: &numHops,
+		},
+	}
+	blindedAddInvoiceArgs := []addInvoiceArg{
+		{in: blindedInvoice},
+	}
+
+	blindedZeroHopAddInvoiceData := *validAddInvoiceData
+	blindedZeroHopAddInvoiceData.BlindedPathCfg = &invoicesrpc.BlindedPathConfig{}
+	blindedZeroHopInvoice := &lnrpc.Invoice{
+		Memo:            validAddInvoiceData.Memo,
+		RPreimage:       validAddInvoiceData.Preimage[:],
+		ValueMsat:       int64(validAddInvoiceData.Value),
+		DescriptionHash: validAddInvoiceData.DescriptionHash,
+		Expiry:          validAddInvoiceData.Expiry,
+		CltvExpiry:      validAddInvoiceData.CltvExpiry,
+		IsBlinded:       true,
+	}
+	blindedZeroHopAddInvoiceArgs := []addInvoiceArg{
+		{in: blindedZeroHopInvoice},
+	}
+
 	routeHintAddInvoiceData := *validAddInvoiceData
 	routeHintAddInvoiceData.RouteHints = validRouteHints
 	routeHintInvoice := &lnrpc.Invoice{
@@ -279,6 +325,30 @@ func TestLightningClientAddInvoice(t *testing.T) {
 			invoice: &hashAddInvoiceData,
 			expect: expect{
 				addInvoiceArgs: hashAddInvoiceArgs,
+				hash:           validRHash,
+				payRequest:     validPayReq,
+			},
+		},
+		{
+			name: "blinded invoice",
+			client: mockRPCClient{
+				addInvoice: validAddInvoice,
+			},
+			invoice: &blindedAddInvoiceData,
+			expect: expect{
+				addInvoiceArgs: blindedAddInvoiceArgs,
+				hash:           validRHash,
+				payRequest:     validPayReq,
+			},
+		},
+		{
+			name: "blinded invoice with zero min path hops",
+			client: mockRPCClient{
+				addInvoice: validAddInvoice,
+			},
+			invoice: &blindedZeroHopAddInvoiceData,
+			expect: expect{
+				addInvoiceArgs: blindedZeroHopAddInvoiceArgs,
 				hash:           validRHash,
 				payRequest:     validPayReq,
 			},
