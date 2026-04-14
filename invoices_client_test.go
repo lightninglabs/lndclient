@@ -183,3 +183,61 @@ func TestInvoiceClientAddInvoiceParity(t *testing.T) {
 		holdRPC.addHoldInvoiceArgs[0].in,
 	)
 }
+
+// TestInvoicesClientAddHoldInvoiceIgnoresUnsupportedFields ensures the
+// AddHoldInvoice wrapper still forwards the supported request fields when AMP
+// or blinded-path-only inputs are provided.
+func TestInvoicesClientAddHoldInvoiceIgnoresUnsupportedFields(t *testing.T) {
+	var validRHash lntypes.Hash
+	copy(validRHash[:], "valid hash")
+
+	invoice := &invoicesrpc.AddInvoiceData{
+		Memo:            "fake memo",
+		Hash:            &validRHash,
+		Value:           lnwire.MilliSatoshi(500000),
+		DescriptionHash: []byte("fake 32 byte hash"),
+		Expiry:          123,
+		FallbackAddr:    fallbackAddr,
+		CltvExpiry:      456,
+		Private:         true,
+		Amp:             true,
+		BlindedPathCfg: &invoicesrpc.BlindedPathConfig{
+			MinNumPathHops: 5,
+		},
+		RouteHints: testInvoiceRouteHints(),
+	}
+
+	rpcRouteHints := testRPCRouteHints(t)
+	expectedRequest := &invoicesrpc.AddHoldInvoiceRequest{
+		Memo:            invoice.Memo,
+		Hash:            invoice.Hash[:],
+		ValueMsat:       int64(invoice.Value),
+		DescriptionHash: invoice.DescriptionHash,
+		Expiry:          invoice.Expiry,
+		FallbackAddr:    invoice.FallbackAddr,
+		CltvExpiry:      invoice.CltvExpiry,
+		Private:         invoice.Private,
+		RouteHints:      rpcRouteHints,
+	}
+
+	holdRPC := &mockInvoicesRPCClient{
+		addHoldInvoice: func(_ *invoicesrpc.AddHoldInvoiceRequest,
+			_ ...grpc.CallOption) (*invoicesrpc.AddHoldInvoiceResp,
+			error) {
+
+			return &invoicesrpc.AddHoldInvoiceResp{
+				PaymentRequest: "probe invoice",
+			}, nil
+		},
+	}
+
+	invoices := &invoicesClient{
+		client: holdRPC,
+	}
+
+	_, err := invoices.AddHoldInvoice(t.Context(), invoice)
+	require.NoError(t, err)
+
+	require.Len(t, holdRPC.addHoldInvoiceArgs, 1)
+	require.Equal(t, expectedRequest, holdRPC.addHoldInvoiceArgs[0].in)
+}
