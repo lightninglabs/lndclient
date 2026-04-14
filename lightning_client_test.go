@@ -58,6 +58,9 @@ func assertAddInvoiceArgs(t *testing.T, want, got []addInvoiceArg) {
 		)
 		require.Equal(t, want[i].in.Expiry, got[i].in.Expiry)
 		require.Equal(
+			t, want[i].in.FallbackAddr, got[i].in.FallbackAddr,
+		)
+		require.Equal(
 			t, want[i].in.CltvExpiry, got[i].in.CltvExpiry,
 		)
 		require.Equal(t, want[i].in.Private, got[i].in.Private)
@@ -134,6 +137,22 @@ func TestLightningClientAddInvoice(t *testing.T) {
 		{in: privateInvoice},
 	}
 
+	fallbackAddrAddInvoiceData := *validAddInvoiceData
+	fallbackAddrAddInvoiceData.FallbackAddr = fallbackAddr
+	fallbackAddrInvoice := &lnrpc.Invoice{
+		Memo:            validAddInvoiceData.Memo,
+		RPreimage:       validAddInvoiceData.Preimage[:],
+		RHash:           validAddInvoiceData.Hash[:],
+		ValueMsat:       int64(validAddInvoiceData.Value),
+		DescriptionHash: validAddInvoiceData.DescriptionHash,
+		Expiry:          validAddInvoiceData.Expiry,
+		FallbackAddr:    fallbackAddrAddInvoiceData.FallbackAddr,
+		CltvExpiry:      validAddInvoiceData.CltvExpiry,
+	}
+	fallbackAddrAddInvoiceArgs := []addInvoiceArg{
+		{in: fallbackAddrInvoice},
+	}
+
 	routeHintAddInvoiceData := *validAddInvoiceData
 	routeHintAddInvoiceData.RouteHints = validRouteHints
 	routeHintInvoice := &lnrpc.Invoice{
@@ -193,6 +212,18 @@ func TestLightningClientAddInvoice(t *testing.T) {
 			invoice: &privateAddInvoiceData,
 			expect: expect{
 				addInvoiceArgs: privateAddInvoiceArgs,
+				hash:           validRHash,
+				payRequest:     validPayReq,
+			},
+		},
+		{
+			name: "invoice with fallback address",
+			client: mockRPCClient{
+				addInvoice: validAddInvoice,
+			},
+			invoice: &fallbackAddrAddInvoiceData,
+			expect: expect{
+				addInvoiceArgs: fallbackAddrAddInvoiceArgs,
 				hash:           validRHash,
 				payRequest:     validPayReq,
 			},

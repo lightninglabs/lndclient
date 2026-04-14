@@ -50,6 +50,9 @@ func testInvoiceRouteHints() [][]zpay32.HopHint {
 	}
 }
 
+// fallbackAddr is just a Bitcoin address used for tests of FallbackAddr field.
+const fallbackAddr = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"
+
 // testRPCRouteHints returns the RPC form of the deterministic route hints.
 func testRPCRouteHints(t *testing.T) []*lnrpc.RouteHint {
 	t.Helper()
@@ -92,25 +95,50 @@ func (m *mockInvoicesRPCClient) AddHoldInvoice(ctx context.Context,
 	return m.addHoldInvoice(in, opts...)
 }
 
-// TestInvoiceClientAddInvoiceRouteHintParity ensures AddInvoice and
-// AddHoldInvoice encode the same route hints for the same invoice input.
-func TestInvoiceClientAddInvoiceRouteHintParity(t *testing.T) {
+// assertInvoiceRequestParity verifies the shared fields that should be encoded
+// identically by AddInvoice and AddHoldInvoice.
+func assertInvoiceRequestParity(t *testing.T, add *lnrpc.Invoice,
+	hold *invoicesrpc.AddHoldInvoiceRequest) {
+
+	t.Helper()
+
+	require.Equal(t, add.Memo, hold.Memo)
+	require.Equal(t, add.ValueMsat, hold.ValueMsat)
+	require.Equal(t, add.DescriptionHash, hold.DescriptionHash)
+	require.Equal(t, add.Expiry, hold.Expiry)
+	require.Equal(t, add.FallbackAddr, hold.FallbackAddr)
+	require.Equal(t, add.CltvExpiry, hold.CltvExpiry)
+	require.Equal(t, add.Private, hold.Private)
+	require.Equal(t, add.RouteHints, hold.RouteHints)
+}
+
+// TestInvoiceClientAddInvoiceParity ensures AddInvoice and AddHoldInvoice
+// encode the same explicit invoice fields for the same invoice input.
+func TestInvoiceClientAddInvoiceParity(t *testing.T) {
 	var validPreimage lntypes.Preimage
 	copy(validPreimage[:], "valid preimage")
 
 	var validRHash lntypes.Hash
 	copy(validRHash[:], "valid hash")
 
-	invoice := &invoicesrpc.AddInvoiceData{
+	sharedInvoice := invoicesrpc.AddInvoiceData{
 		Memo:            "fake memo",
-		Preimage:        &validPreimage,
-		Hash:            &validRHash,
 		Value:           lnwire.MilliSatoshi(500000),
 		DescriptionHash: []byte("fake 32 byte hash"),
 		Expiry:          123,
+		FallbackAddr:    fallbackAddr,
 		CltvExpiry:      456,
+		Private:         true,
 		RouteHints:      testInvoiceRouteHints(),
 	}
+
+	// The two wrappers use different invoice creation RPCs, so we provide
+	// path-specific fixtures for their mutually exclusive fields.
+	lightningInvoice := sharedInvoice
+	lightningInvoice.Preimage = &validPreimage
+
+	holdInvoice := sharedInvoice
+	holdInvoice.Hash = &validRHash
 
 	lightningRPC := &mockRPCClient{
 		addInvoice: func(_ *lnrpc.Invoice,
@@ -141,17 +169,17 @@ func TestInvoiceClientAddInvoiceRouteHintParity(t *testing.T) {
 		client: holdRPC,
 	}
 
-	_, _, err := lightning.AddInvoice(t.Context(), invoice)
+	_, _, err := lightning.AddInvoice(t.Context(), &lightningInvoice)
 	require.NoError(t, err)
 
-	_, err = invoices.AddHoldInvoice(t.Context(), invoice)
+	_, err = invoices.AddHoldInvoice(t.Context(), &holdInvoice)
 	require.NoError(t, err)
 
 	require.Len(t, lightningRPC.addInvoiceArgs, 1)
 	require.Len(t, holdRPC.addHoldInvoiceArgs, 1)
 
-	require.Equal(
-		t, holdRPC.addHoldInvoiceArgs[0].in.RouteHints,
-		lightningRPC.addInvoiceArgs[0].in.RouteHints,
+	assertInvoiceRequestParity(
+		t, lightningRPC.addInvoiceArgs[0].in,
+		holdRPC.addHoldInvoiceArgs[0].in,
 	)
 }
