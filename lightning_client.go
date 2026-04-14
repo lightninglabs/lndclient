@@ -1665,6 +1665,12 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	if in.Hash != nil || in.HodlInvoice {
+		log.Warnf("lightningClient.AddInvoice ignores " +
+			"Hash/HodlInvoice; use InvoicesClient.AddHoldInvoice " +
+			"for hold invoices")
+	}
+
 	routeHints, err := marshallRouteHints(in.RouteHints)
 	if err != nil {
 		return lntypes.Hash{}, "", fmt.Errorf(
@@ -1686,9 +1692,6 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 
 	if in.Preimage != nil {
 		rpcIn.RPreimage = in.Preimage[:]
-	}
-	if in.Hash != nil {
-		rpcIn.RHash = in.Hash[:]
 	}
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)

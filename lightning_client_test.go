@@ -89,7 +89,6 @@ func TestLightningClientAddInvoice(t *testing.T) {
 	validAddInvoiceData := &invoicesrpc.AddInvoiceData{
 		Memo:            "fake memo",
 		Preimage:        &validPreimage,
-		Hash:            &validRHash,
 		Value:           lnwire.MilliSatoshi(500000),
 		DescriptionHash: []byte("fake 32 byte hash"),
 		Expiry:          123,
@@ -99,7 +98,6 @@ func TestLightningClientAddInvoice(t *testing.T) {
 	validInvoice := &lnrpc.Invoice{
 		Memo:            validAddInvoiceData.Memo,
 		RPreimage:       validAddInvoiceData.Preimage[:],
-		RHash:           validAddInvoiceData.Hash[:],
 		ValueMsat:       int64(validAddInvoiceData.Value),
 		DescriptionHash: validAddInvoiceData.DescriptionHash,
 		Expiry:          validAddInvoiceData.Expiry,
@@ -127,7 +125,6 @@ func TestLightningClientAddInvoice(t *testing.T) {
 	privateInvoice := &lnrpc.Invoice{
 		Memo:            validAddInvoiceData.Memo,
 		RPreimage:       validAddInvoiceData.Preimage[:],
-		RHash:           validAddInvoiceData.Hash[:],
 		ValueMsat:       int64(validAddInvoiceData.Value),
 		DescriptionHash: validAddInvoiceData.DescriptionHash,
 		Expiry:          validAddInvoiceData.Expiry,
@@ -143,7 +140,6 @@ func TestLightningClientAddInvoice(t *testing.T) {
 	fallbackAddrInvoice := &lnrpc.Invoice{
 		Memo:            validAddInvoiceData.Memo,
 		RPreimage:       validAddInvoiceData.Preimage[:],
-		RHash:           validAddInvoiceData.Hash[:],
 		ValueMsat:       int64(validAddInvoiceData.Value),
 		DescriptionHash: validAddInvoiceData.DescriptionHash,
 		Expiry:          validAddInvoiceData.Expiry,
@@ -174,12 +170,26 @@ func TestLightningClientAddInvoice(t *testing.T) {
 		{in: ampInvoice},
 	}
 
+	hashAddInvoiceData := *validAddInvoiceData
+	hashAddInvoiceData.Preimage = nil
+	hashAddInvoiceData.Hash = &validRHash
+	hashAddInvoiceData.HodlInvoice = true
+	hashInvoice := &lnrpc.Invoice{
+		Memo:            validAddInvoiceData.Memo,
+		ValueMsat:       int64(validAddInvoiceData.Value),
+		DescriptionHash: validAddInvoiceData.DescriptionHash,
+		Expiry:          validAddInvoiceData.Expiry,
+		CltvExpiry:      validAddInvoiceData.CltvExpiry,
+	}
+	hashAddInvoiceArgs := []addInvoiceArg{
+		{in: hashInvoice},
+	}
+
 	routeHintAddInvoiceData := *validAddInvoiceData
 	routeHintAddInvoiceData.RouteHints = validRouteHints
 	routeHintInvoice := &lnrpc.Invoice{
 		Memo:            validAddInvoiceData.Memo,
 		RPreimage:       validAddInvoiceData.Preimage[:],
-		RHash:           validAddInvoiceData.Hash[:],
 		ValueMsat:       int64(validAddInvoiceData.Value),
 		DescriptionHash: validAddInvoiceData.DescriptionHash,
 		Expiry:          validAddInvoiceData.Expiry,
@@ -257,6 +267,18 @@ func TestLightningClientAddInvoice(t *testing.T) {
 			invoice: ampAddInvoiceData,
 			expect: expect{
 				addInvoiceArgs: ampAddInvoiceArgs,
+				hash:           validRHash,
+				payRequest:     validPayReq,
+			},
+		},
+		{
+			name: "invoice with hash uses standard invoice path",
+			client: mockRPCClient{
+				addInvoice: validAddInvoice,
+			},
+			invoice: &hashAddInvoiceData,
+			expect: expect{
+				addInvoiceArgs: hashAddInvoiceArgs,
 				hash:           validRHash,
 				payRequest:     validPayReq,
 			},
