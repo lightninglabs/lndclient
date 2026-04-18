@@ -1665,20 +1665,52 @@ func (s *lightningClient) AddInvoice(ctx context.Context,
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	if in.Hash != nil || in.HodlInvoice {
+		log.Warnf("lightningClient.AddInvoice ignores " +
+			"Hash/HodlInvoice; use InvoicesClient.AddHoldInvoice " +
+			"for hold invoices")
+	}
+
+	routeHints, err := marshallRouteHints(in.RouteHints)
+	if err != nil {
+		return lntypes.Hash{}, "", fmt.Errorf(
+			"failed to marshal route hints: %v", err,
+		)
+	}
+
 	rpcIn := &lnrpc.Invoice{
 		Memo:            in.Memo,
 		ValueMsat:       int64(in.Value),
 		DescriptionHash: in.DescriptionHash,
 		Expiry:          in.Expiry,
+		FallbackAddr:    in.FallbackAddr,
 		CltvExpiry:      in.CltvExpiry,
 		Private:         in.Private,
+		IsAmp:           in.Amp,
+		RouteHints:      routeHints,
 	}
 
 	if in.Preimage != nil {
 		rpcIn.RPreimage = in.Preimage[:]
 	}
-	if in.Hash != nil {
-		rpcIn.RHash = in.Hash[:]
+	if in.BlindedPathCfg != nil {
+		rpcIn.IsBlinded = true
+
+		if in.BlindedPathCfg.MinNumPathHops != 0 {
+			numHops := uint32(in.BlindedPathCfg.MinNumPathHops)
+			rpcIn.BlindedPathConfig = &lnrpc.BlindedPathConfig{
+				NumHops: &numHops,
+			}
+		}
+
+		if in.BlindedPathCfg.RoutePolicyIncrMultiplier != 0 ||
+			in.BlindedPathCfg.RoutePolicyDecrMultiplier != 0 ||
+			in.BlindedPathCfg.DefaultDummyHopPolicy != nil {
+
+			log.Warnf("lightningClient.AddInvoice only forwards " +
+				"MinNumPathHops from BlindedPathCfg; other " +
+				"blinded path settings use lnd defaults")
+		}
 	}
 
 	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
