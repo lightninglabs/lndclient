@@ -111,6 +111,11 @@ type LightningClient interface {
 	// LookupInvoice looks up an invoice by hash.
 	LookupInvoice(ctx context.Context, hash lntypes.Hash) (*Invoice, error)
 
+	// DeleteCanceledInvoice deletes a canceled invoice identified by its
+	// payment hash. Only invoices in the canceled state can be deleted;
+	// attempting to delete an invoice in any other state returns an error.
+	DeleteCanceledInvoice(ctx context.Context, hash lntypes.Hash) error
+
 	// ListTransactions returns all known transactions of the backing lnd
 	// node. It takes a start and end block height which can be used to
 	// limit the block range that we query over. These values can be left
@@ -1853,6 +1858,24 @@ func (s *lightningClient) LookupInvoice(ctx context.Context,
 	}
 
 	return invoice, nil
+}
+
+// DeleteCanceledInvoice deletes a canceled invoice from lnd's database. Only
+// invoices in the canceled state can be deleted; attempting to delete an
+// invoice in any other state returns an error from lnd.
+func (s *lightningClient) DeleteCanceledInvoice(ctx context.Context,
+	hash lntypes.Hash) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
+	rpcCtx = s.adminMac.WithMacaroonAuth(rpcCtx)
+	_, err := s.client.DeleteCanceledInvoice(
+		rpcCtx, &lnrpc.DelCanceledInvoiceReq{
+			InvoiceHash: hash.String(),
+		},
+	)
+	return err
 }
 
 // unmarshalInvoice creates an invoice from the rpc response provided.
