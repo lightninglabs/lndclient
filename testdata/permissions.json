@@ -472,6 +472,14 @@
                 }
             ]
         },
+        "/lnrpc.Lightning/DeleteCanceledInvoice": {
+            "permissions": [
+                {
+                    "entity": "invoices",
+                    "action": "write"
+                }
+            ]
+        },
         "/lnrpc.Lightning/NewAddress": {
             "permissions": [
                 {
