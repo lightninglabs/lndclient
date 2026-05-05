@@ -252,19 +252,24 @@ func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 	//nolint:lll
 	// fullDescriptor is a helper method that creates a fully populated sign
 	// descriptor that includes both the public key and the key locator (if
-	// available). For the locator we explicitly check that both the family
-	// _and_ the index is non-zero. In some applications it's possible that
-	// the family is always set (because only a specific family is used),
-	// but the index might be zero because it's the first key, or because it
-	// isn't known at that particular moment.
+	// available). The locator is attached whenever either the family _or_
+	// the index is non-zero; only the all-zero KeyLocator (which is the
+	// struct's zero value and therefore indistinguishable from "unset") is
+	// omitted. A prior version of this helper required both components to
+	// be non-zero, which silently dropped the locator for valid keys whose
+	// slot has a zero component — most notably LND's node identity key at
+	// KeyFamilyNodeKey (6) / index 0. Signers that must re-derive the key
+	// from its locator (restored-from-seed wallets, or identity-key paths
+	// where only the family is meaningful) could not resolve those keys.
 	// We aim to be compatible with this method in lnd's wallet:
 	// https://github.com/lightningnetwork/lnd/blob/master/lnwallet/btcwallet/signer.go#L286
-	// Because we know all custom families (0 to 255) are derived at wallet
-	// creation, and the very first index of each family/account is always
-	// derived, we know that only using the public key for that very first
-	// index will work. But for a freshly initialized wallet (e.g. restored
-	// from seed), we won't know any indexes greater than 0, so we _need_ to
-	// also specify the key locator and not just the public key.
+	// The very first index of each custom family is always derived at
+	// wallet creation, so for callers that know the pubkey the backend can
+	// resolve the key without a locator. But wallets restored from seed
+	// won't have pre-derived indexes greater than 0, and keys pinned to a
+	// fixed family slot (like the node identity key) must have the locator
+	// forwarded so the signer can re-derive them — hence we forward a
+	// locator whenever the caller has populated even one component.
 	fullDescriptor := func(
 		d keychain.KeyDescriptor) *signrpc.KeyDescriptor {
 
@@ -273,7 +278,7 @@ func marshallSignDescriptors(signDescriptors []*SignDescriptor,
 			keyDesc.RawKeyBytes = d.PubKey.SerializeCompressed()
 		}
 
-		if d.KeyLocator.Family != 0 && d.KeyLocator.Index != 0 {
+		if d.KeyLocator.Family != 0 || d.KeyLocator.Index != 0 {
 			keyDesc.KeyLoc = &signrpc.KeyLocator{
 				KeyFamily: int32(d.KeyLocator.Family),
 				KeyIndex:  int32(d.KeyLocator.Index),
