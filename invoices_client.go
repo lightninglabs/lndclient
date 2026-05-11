@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -26,7 +25,7 @@ type InvoiceHtlcModifyRequest struct {
 
 	// CircuitKey is the circuit key of the HTLC that is attempting to
 	// settle the invoice.
-	CircuitKey invpkg.CircuitKey
+	CircuitKey CircuitKey
 
 	// ExitHtlcAmt is the amount of the HTLC that is attempting to settle
 	// the invoice.
@@ -47,7 +46,7 @@ type InvoiceHtlcModifyRequest struct {
 // InvoiceHtlcModifyResponse is a response to an HTLC modification request.
 type InvoiceHtlcModifyResponse struct {
 	// CircuitKey is the circuit key the response is for.
-	CircuitKey invpkg.CircuitKey
+	CircuitKey CircuitKey
 
 	// AmtPaid is the amount the HTLC contributes toward settling the
 	// invoice. This amount can be different from the on-chain amount of the
@@ -332,7 +331,7 @@ func (s *invoicesClient) HtlcModifier(ctx context.Context,
 			wireCustomRecords := req.ExitHtlcWireCustomRecords
 			interceptReq := InvoiceHtlcModifyRequest{
 				Invoice: req.Invoice,
-				CircuitKey: invpkg.CircuitKey{
+				CircuitKey: CircuitKey{
 					ChanID: lnwire.NewShortChanIDFromInt(
 						req.ExitHtlcCircuitKey.ChanId,
 					),

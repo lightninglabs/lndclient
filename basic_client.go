@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -135,7 +134,7 @@ func NewBasicConn(lndHost string, tlsPath, macDir, network string,
 	// and not just TCP addresses.
 	opts = append(
 		opts, grpc.WithContextDialer(
-			lncfg.ClientAddressDialer(defaultRPCPort),
+			ClientAddressDialer(defaultRPCPort),
 		),
 	)
 	conn, err := grpc.Dial(lndHost, opts...)

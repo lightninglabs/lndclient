@@ -15,8 +15,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	invpkg "github.com/lightningnetwork/lnd/invoices"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1448,7 +1446,7 @@ func newInfo(resp *lnrpc.GetInfoResponse) (*Info, error) {
 		return nil, fmt.Errorf("failed to parse BlockHash: %w", err)
 	}
 
-	color, err := lncfg.ParseHexColor(resp.Color)
+	color, err := ParseHexColor(resp.Color)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse color hex %q: %w",
 			resp.Color, err)
@@ -1764,7 +1762,7 @@ type Invoice struct {
 	SettleDate time.Time
 
 	// State is the invoice's current state.
-	State invpkg.ContractState
+	State ContractState
 
 	// IsKeysend indicates whether the invoice was a spontaneous payment.
 	IsKeysend bool
@@ -1926,15 +1924,15 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 
 	switch resp.State {
 	case lnrpc.Invoice_OPEN:
-		invoice.State = invpkg.ContractOpen
+		invoice.State = ContractOpen
 
 	case lnrpc.Invoice_ACCEPTED:
-		invoice.State = invpkg.ContractAccepted
+		invoice.State = ContractAccepted
 
 	// If the invoice is settled, it also has a non-nil preimage, which we
 	// can set on our invoice.
 	case lnrpc.Invoice_SETTLED:
-		invoice.State = invpkg.ContractSettled
+		invoice.State = ContractSettled
 
 		// AMP invoices do not have an invoice-level preimage even when
 		// they have been settled multiple times.
@@ -1947,7 +1945,7 @@ func unmarshalInvoice(resp *lnrpc.Invoice) (*Invoice, error) {
 		}
 
 	case lnrpc.Invoice_CANCELED:
-		invoice.State = invpkg.ContractCanceled
+		invoice.State = ContractCanceled
 
 	default:
 		return nil, fmt.Errorf("unknown invoice state: %v",

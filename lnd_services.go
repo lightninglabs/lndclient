@@ -15,7 +15,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -134,7 +133,7 @@ type LndServicesConfig struct {
 	CheckVersion *verrpc.Version
 
 	// Dialer is an optional dial function that can be passed in if the
-	// default lncfg.ClientAddressDialer should not be used.
+	// default ClientAddressDialer should not be used.
 	Dialer DialerFunc
 
 	// BlockUntilChainSynced denotes that the NewLndServices function should
@@ -209,7 +208,7 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	// We need to use a custom dialer so we can also connect to unix
 	// sockets and not just TCP addresses.
 	if cfg.Dialer == nil {
-		cfg.Dialer = lncfg.ClientAddressDialer(defaultRPCPort)
+		cfg.Dialer = ClientAddressDialer(defaultRPCPort)
 	}
 
 	// Fall back to minimal compatible version if none if specified.

@@ -11,7 +11,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -322,7 +321,7 @@ type SendPaymentRequest struct {
 // lnd's switch.
 type InterceptedHtlc struct {
 	// IncomingCircuitKey is lnd's unique identfier for the incoming htlc.
-	IncomingCircuitKey invpkg.CircuitKey
+	IncomingCircuitKey CircuitKey
 
 	// Hash is the payment hash for the htlc. This may not be unique for
 	// MPP htlcs.
@@ -842,7 +841,7 @@ func (r *routerClient) InterceptHtlcs(ctx context.Context,
 			inWireCustomRecords := request.InWireCustomRecords
 
 			req := InterceptedHtlc{
-				IncomingCircuitKey: invpkg.CircuitKey{
+				IncomingCircuitKey: CircuitKey{
 					ChanID: chanIn,
 					HtlcID: request.IncomingCircuitKey.HtlcId,
 				},
