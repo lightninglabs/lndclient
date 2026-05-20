@@ -1182,6 +1182,10 @@ func newAcceptorRequest(req *lnrpc.ChannelAcceptRequest) (*AcceptorRequest,
 		commitmentType = new(lnwallet.CommitmentType)
 		*commitmentType = lnwallet.CommitmentTypeSimpleTaproot
 
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
+		commitmentType = new(lnwallet.CommitmentType)
+		*commitmentType = lnwallet.CommitmentTypeSimpleTaprootFinal
+
 	case lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY:
 		commitmentType = new(lnwallet.CommitmentType)
 		*commitmentType = lnwallet.CommitmentTypeSimpleTaprootOverlay
