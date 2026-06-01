@@ -365,10 +365,15 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		return nil, fmt.Errorf("unable to obtain macaroons: %v", err)
 	}
 
+	routerClient := newRouterClient(
+		conn, macaroons[RouterServiceMac], timeout,
+	)
+
 	// With the macaroons loaded and the version checked, we can now create
 	// the real lightning client which uses the admin macaroon.
 	lightningClient := newLightningClient(
 		conn, timeout, chainParams, macaroons[AdminServiceMac],
+		routerClient,
 	)
 
 	// With the network check passed, we'll now initialize the rest of the
@@ -387,9 +392,6 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 	)
 	invoicesClient := newInvoicesClient(
 		conn, macaroons[InvoiceServiceMac], timeout,
-	)
-	routerClient := newRouterClient(
-		conn, macaroons[RouterServiceMac], timeout,
 	)
 	wtClient := newWtClient(
 		conn, macaroons[WalletKitServiceMac], timeout,

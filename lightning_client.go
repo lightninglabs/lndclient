@@ -27,8 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // OpenChannelOption is a functional type for an option that modifies an
@@ -1364,12 +1362,11 @@ var (
 	// when the payment was initiated in a previous SendPayment call and
 	// still in flight.
 	PaymentResultInFlight = paymentsdb.ErrPaymentInFlight.Error()
-
-	paymentPollInterval = 3 * time.Second
 )
 
 type lightningClient struct {
 	client   lnrpc.LightningClient
+	router   *routerClient
 	wg       sync.WaitGroup
 	params   *chaincfg.Params
 	timeout  time.Duration
@@ -1381,10 +1378,12 @@ type lightningClient struct {
 var _ LightningClient = (*lightningClient)(nil)
 
 func newLightningClient(conn grpc.ClientConnInterface, timeout time.Duration,
-	params *chaincfg.Params, adminMac serializedMacaroon) *lightningClient {
+	params *chaincfg.Params, adminMac serializedMacaroon,
+	router *routerClient) *lightningClient {
 
 	return &lightningClient{
 		client:   lnrpc.NewLightningClient(conn),
+		router:   router,
 		params:   params,
 		timeout:  timeout,
 		adminMac: adminMac,
@@ -1533,8 +1532,8 @@ func (s *lightningClient) PayInvoice(ctx context.Context, invoice string,
 	// Use buffer to prevent blocking.
 	paymentChan := make(chan PaymentResult, 1)
 
-	// Execute payment in parallel, because it will block until server
-	// discovers preimage.
+	// Execute payment in parallel, because it will block until the
+	// payment stream reaches a final state.
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -1548,125 +1547,13 @@ func (s *lightningClient) PayInvoice(ctx context.Context, invoice string,
 	return paymentChan
 }
 
-// payInvoice tries to send a payment and returns the final result. If
-// necessary, it will poll lnd for the payment result.
+// payInvoice tries to send a payment and returns the final result.
 func (s *lightningClient) payInvoice(ctx context.Context, invoice string,
 	maxFee btcutil.Amount, outgoingChannel *uint64) *PaymentResult {
 
-	payReq, err := zpay32.Decode(invoice, s.params)
-	if err != nil {
-		return &PaymentResult{
-			Err: fmt.Errorf("invoice decode: %v", err),
-		}
-	}
-
-	if payReq.MilliSat == nil {
-		return &PaymentResult{
-			Err: errors.New("no amount in invoice"),
-		}
-	}
-
-	hash := lntypes.Hash(*payReq.PaymentHash)
-
-	ctx = s.adminMac.WithMacaroonAuth(ctx)
-	for {
-		// Create no timeout context as this call can block for a long
-		// time.
-
-		req := &lnrpc.SendRequest{
-			FeeLimit: &lnrpc.FeeLimit{
-				Limit: &lnrpc.FeeLimit_Fixed{
-					Fixed: int64(maxFee),
-				},
-			},
-			PaymentRequest: invoice,
-		}
-
-		if outgoingChannel != nil {
-			req.OutgoingChanId = *outgoingChannel
-		}
-
-		payResp, err := s.client.SendPaymentSync(ctx, req)
-
-		if status.Code(err) == codes.Canceled {
-			return nil
-		}
-
-		if err == nil {
-			// TODO: Use structured payment error when available,
-			// instead of this brittle string matching.
-			switch payResp.PaymentError {
-			// Paid successfully.
-			case PaymentResultSuccess:
-				log.Infof(
-					"Payment %v completed", hash,
-				)
-
-				r := payResp.PaymentRoute
-
-				var (
-					preimage lntypes.Preimage
-					err      error
-				)
-
-				if payResp.PaymentPreimage != nil {
-					preimage, err = lntypes.MakePreimage(
-						payResp.PaymentPreimage,
-					)
-					if err != nil {
-						return &PaymentResult{Err: err}
-					}
-				}
-
-				return &PaymentResult{
-					PaidFee: btcutil.Amount(r.TotalFees), // nolint:staticcheck
-					PaidAmt: btcutil.Amount(
-						r.TotalAmt - r.TotalFees, // nolint:staticcheck
-					),
-					Preimage: preimage,
-				}
-
-			// Invoice was already paid on a previous run.
-			case PaymentResultAlreadyPaid:
-				log.Infof(
-					"Payment %v already completed", hash,
-				)
-
-				// Unfortunately lnd doesn't return the route if
-				// the payment was successful in a previous
-				// call. Assume paid fees 0 and take paid amount
-				// from invoice.
-
-				return &PaymentResult{
-					PaidFee: 0,
-					PaidAmt: payReq.MilliSat.ToSatoshis(),
-				}
-
-			// If the payment is already in flight, we will poll
-			// again later for an outcome.
-			//
-			// TODO: Improve this when lnd expose more API to
-			// tracking existing payments.
-			case PaymentResultInFlight:
-				log.Infof(
-					"Payment %v already in flight", hash,
-				)
-
-				time.Sleep(paymentPollInterval)
-
-			// Other errors are transformed into an error struct.
-			default:
-				log.Warnf(
-					"Payment %v failed: %v", hash,
-					payResp.PaymentError,
-				)
-
-				return &PaymentResult{
-					Err: errors.New(payResp.PaymentError),
-				}
-			}
-		}
-	}
+	return s.router.payInvoice(
+		ctx, s.params, invoice, maxFee, outgoingChannel, nil,
+	)
 }
 
 func (s *lightningClient) AddInvoice(ctx context.Context,

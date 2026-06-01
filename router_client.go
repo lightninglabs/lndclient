@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -432,6 +433,11 @@ type routerClient struct {
 	wg           sync.WaitGroup
 }
 
+// paymentResultStream receives payment updates from a router payment RPC.
+type paymentResultStream interface {
+	Recv() (*lnrpc.Payment, error)
+}
+
 // A compile time check to ensure that routerClient implements the RouterClient
 // interface.
 var _ RouterClient = (*routerClient)(nil)
@@ -555,6 +561,121 @@ func (r *routerClient) TrackPayment(ctx context.Context,
 	}
 
 	return r.trackPayment(ctx, stream)
+}
+
+// payInvoice sends an invoice payment and returns its final result. This is a
+// compatibility helper for LightningClient.PayInvoice.
+func (r *routerClient) payInvoice(ctx context.Context, params *chaincfg.Params,
+	invoice string, maxFee btcutil.Amount,
+	outgoingChannel *uint64, customRecords map[uint64][]byte) *PaymentResult {
+
+	payReq, err := zpay32.Decode(invoice, params)
+	if err != nil {
+		return &PaymentResult{
+			Err: fmt.Errorf("invoice decode: %v", err),
+		}
+	}
+
+	if payReq.MilliSat == nil {
+		return &PaymentResult{
+			Err: errors.New("no amount in invoice"),
+		}
+	}
+
+	hash := lntypes.Hash(*payReq.PaymentHash)
+
+	ctx = r.routerKitMac.WithMacaroonAuth(ctx)
+	req := &routerrpc.SendPaymentRequest{
+		FeeLimitSat:       int64(maxFee),
+		PaymentRequest:    invoice,
+		DestCustomRecords: customRecords,
+	}
+
+	if outgoingChannel != nil {
+		req.OutgoingChanIds = []uint64{*outgoingChannel}
+	}
+
+	stream, err := r.client.SendPaymentV2(ctx, req)
+	if status.Code(err) == codes.Canceled {
+		return nil
+	}
+
+	if status.Code(err) == codes.AlreadyExists {
+		log.Infof("Payment %v already initiated(inflight) "+
+			"or completed(settled)", hash)
+
+		stream, err := r.client.TrackPaymentV2(
+			ctx, &routerrpc.TrackPaymentRequest{
+				PaymentHash: hash[:],
+			},
+		)
+		if status.Code(err) == codes.Canceled {
+			return nil
+		}
+		if err != nil {
+			return &PaymentResult{Err: err}
+		}
+
+		return r.paymentResultFromStream(hash, stream)
+	}
+
+	if err != nil {
+		return &PaymentResult{Err: err}
+	}
+
+	return r.paymentResultFromStream(hash, stream)
+}
+
+// paymentResultFromStream consumes a router payment update stream until a final
+// payment result is received.
+func (r *routerClient) paymentResultFromStream(hash lntypes.Hash,
+	stream paymentResultStream) *PaymentResult {
+
+	for {
+		payResp, err := stream.Recv()
+		if status.Code(err) == codes.Canceled {
+			return nil
+		}
+
+		if err == io.EOF {
+			return &PaymentResult{
+				Err: errors.New("payment stream closed"),
+			}
+		}
+
+		if err != nil {
+			return &PaymentResult{Err: err}
+		}
+
+		status, err := unmarshallPaymentStatus(payResp)
+		if err != nil {
+			return &PaymentResult{Err: err}
+		}
+
+		switch status.State {
+		case lnrpc.Payment_SUCCEEDED:
+			log.Infof("Payment %v completed", hash)
+
+			return &PaymentResult{
+				PaidFee:  status.Fee.ToSatoshis(),
+				PaidAmt:  status.Value.ToSatoshis(),
+				Preimage: status.Preimage,
+			}
+
+		case lnrpc.Payment_FAILED:
+			log.Warnf(
+				"Payment %v failed: %v", hash,
+				status.FailureReason,
+			)
+
+			return &PaymentResult{
+				Err: errors.New(status.FailureReason.String()),
+			}
+
+		case lnrpc.Payment_IN_FLIGHT:
+			log.Infof("Payment %v still in flight", hash)
+		}
+	}
 }
 
 // trackPayment takes an update stream from either a SendPayment or a
