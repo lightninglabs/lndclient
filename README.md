@@ -28,6 +28,7 @@ The current compatibility matrix reads as follows:
 |--------------|---------------------------|--------------------------------|
 | `v0.18.5-13` | `v0.18.5-beta`            | `v0.18.5-beta`                 |
 | `v0.20.0-4`  | `v0.20.0-beta`            | `v0.19.0-beta`                 |
+| `v0.21.0-1`  | `v0.21.0-beta`            | `v0.21.0-beta`                 |
 
 
 By default, `lndclient` requires (and enforces) the following RPC subservers to
