@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -395,6 +396,19 @@ type InterceptedHtlcResponse struct {
 	// intercepted.
 	Action InterceptorAction
 
+	// FailureMessage is a pre-encrypted onion error to return when the
+	// action is fail. When set, lnd relays the bytes using
+	// IntermediateEncrypt, preserving the error attribution of the
+	// original encrypter.
+	FailureMessage []byte
+
+	// FailureCode is the failure code to return when the action is
+	// fail. When non-zero, lnd constructs an onion error attributed to
+	// the intercepting node using EncryptFirstHop. When zero and
+	// FailureMessage is also empty, lnd defaults to
+	// TemporaryChannelFailure.
+	FailureCode lnrpc.Failure_FailureCode
+
 	// IncomingAmount is the amount that should be used to validate the
 	// incoming htlc. This might be different from the actual HTLC amount
 	// for custom channels.
@@ -417,6 +431,11 @@ type routerClient struct {
 	quitOnce     sync.Once
 	quit         chan struct{}
 	wg           sync.WaitGroup
+}
+
+// paymentResultStream receives payment updates from a router payment RPC.
+type paymentResultStream interface {
+	Recv() (*lnrpc.Payment, error)
 }
 
 // A compile time check to ensure that routerClient implements the RouterClient
@@ -542,6 +561,121 @@ func (r *routerClient) TrackPayment(ctx context.Context,
 	}
 
 	return r.trackPayment(ctx, stream)
+}
+
+// payInvoice sends an invoice payment and returns its final result. This is a
+// compatibility helper for LightningClient.PayInvoice.
+func (r *routerClient) payInvoice(ctx context.Context, params *chaincfg.Params,
+	invoice string, maxFee btcutil.Amount,
+	outgoingChannel *uint64, customRecords map[uint64][]byte) *PaymentResult {
+
+	payReq, err := zpay32.Decode(invoice, params)
+	if err != nil {
+		return &PaymentResult{
+			Err: fmt.Errorf("invoice decode: %v", err),
+		}
+	}
+
+	if payReq.MilliSat == nil {
+		return &PaymentResult{
+			Err: errors.New("no amount in invoice"),
+		}
+	}
+
+	hash := lntypes.Hash(*payReq.PaymentHash)
+
+	ctx = r.routerKitMac.WithMacaroonAuth(ctx)
+	req := &routerrpc.SendPaymentRequest{
+		FeeLimitSat:       int64(maxFee),
+		PaymentRequest:    invoice,
+		DestCustomRecords: customRecords,
+	}
+
+	if outgoingChannel != nil {
+		req.OutgoingChanIds = []uint64{*outgoingChannel}
+	}
+
+	stream, err := r.client.SendPaymentV2(ctx, req)
+	if status.Code(err) == codes.Canceled {
+		return nil
+	}
+
+	if status.Code(err) == codes.AlreadyExists {
+		log.Infof("Payment %v already initiated(inflight) "+
+			"or completed(settled)", hash)
+
+		stream, err := r.client.TrackPaymentV2(
+			ctx, &routerrpc.TrackPaymentRequest{
+				PaymentHash: hash[:],
+			},
+		)
+		if status.Code(err) == codes.Canceled {
+			return nil
+		}
+		if err != nil {
+			return &PaymentResult{Err: err}
+		}
+
+		return r.paymentResultFromStream(hash, stream)
+	}
+
+	if err != nil {
+		return &PaymentResult{Err: err}
+	}
+
+	return r.paymentResultFromStream(hash, stream)
+}
+
+// paymentResultFromStream consumes a router payment update stream until a final
+// payment result is received.
+func (r *routerClient) paymentResultFromStream(hash lntypes.Hash,
+	stream paymentResultStream) *PaymentResult {
+
+	for {
+		payResp, err := stream.Recv()
+		if status.Code(err) == codes.Canceled {
+			return nil
+		}
+
+		if err == io.EOF {
+			return &PaymentResult{
+				Err: errors.New("payment stream closed"),
+			}
+		}
+
+		if err != nil {
+			return &PaymentResult{Err: err}
+		}
+
+		status, err := unmarshallPaymentStatus(payResp)
+		if err != nil {
+			return &PaymentResult{Err: err}
+		}
+
+		switch status.State {
+		case lnrpc.Payment_SUCCEEDED:
+			log.Infof("Payment %v completed", hash)
+
+			return &PaymentResult{
+				PaidFee:  status.Fee.ToSatoshis(),
+				PaidAmt:  status.Value.ToSatoshis(),
+				Preimage: status.Preimage,
+			}
+
+		case lnrpc.Payment_FAILED:
+			log.Warnf(
+				"Payment %v failed: %v", hash,
+				status.FailureReason,
+			)
+
+			return &PaymentResult{
+				Err: errors.New(status.FailureReason.String()),
+			}
+
+		case lnrpc.Payment_IN_FLIGHT:
+			log.Infof("Payment %v still in flight", hash)
+		}
+	}
 }
 
 // trackPayment takes an update stream from either a SendPayment or a
@@ -954,6 +1088,22 @@ func rpcInterceptorResponse(request InterceptedHtlc,
 
 	case InterceptorActionFail:
 		rpcResp.Action = routerrpc.ResolveHoldForwardAction_FAIL
+
+		if len(response.FailureMessage) > 0 &&
+			response.FailureCode != 0 {
+
+			return nil, errors.New(
+				"failure_message and failure_code are " +
+					"mutually exclusive",
+			)
+		}
+
+		if len(response.FailureMessage) > 0 {
+			rpcResp.FailureMessage = response.FailureMessage
+		}
+		if response.FailureCode != 0 {
+			rpcResp.FailureCode = response.FailureCode
+		}
 
 	case InterceptorActionResume:
 		rpcResp.Action = routerrpc.ResolveHoldForwardAction_RESUME

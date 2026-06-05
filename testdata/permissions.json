@@ -984,6 +984,22 @@
                 }
             ]
         },
+        "/signrpc.Signer/MuSig2RegisterCombinedNonce": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "generate"
+                }
+            ]
+        },
+        "/signrpc.Signer/MuSig2GetCombinedNonce": {
+            "permissions": [
+                {
+                    "entity": "signer",
+                    "action": "generate"
+                }
+            ]
+        },
         "/signrpc.Signer/SignMessage": {
             "permissions": [
                 {
