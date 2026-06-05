@@ -239,6 +239,12 @@ func (s *invoicesClient) AddHoldInvoice(ctx context.Context,
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
+	if in.Amp || in.BlindedPathCfg != nil {
+		log.Warnf("invoicesClient.AddHoldInvoice ignores Amp/" +
+			"BlindedPathCfg; hold invoice RPC does not support " +
+			"those fields")
+	}
+
 	routeHints, err := marshallRouteHints(in.RouteHints)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal route hints: %v", err)
