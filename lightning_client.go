@@ -2549,6 +2549,23 @@ type ListPaymentsRequest struct {
 
 	// IncludeIncomplete is set if we want to include incomplete payments.
 	IncludeIncomplete bool
+
+	// CountTotalPayments is set if we want LND to count all payments
+	// independent of the max payments parameter. This can significantly
+	// increase runtime on nodes with many payments.
+	CountTotalPayments bool
+
+	// CreationDateStart returns all payments with a creation date greater
+	// than or equal to it. Measured in seconds since the unix epoch.
+	CreationDateStart uint64
+
+	// CreationDateEnd returns all payments with a creation date less than or
+	// equal to it. Measured in seconds since the unix epoch.
+	CreationDateEnd uint64
+
+	// OmitHops is set if we want to omit hop-level route data for HTLC
+	// attempts to reduce query cost and response size.
+	OmitHops bool
 }
 
 // ListPaymentsResponse contains the response to a list payments query,
@@ -2562,6 +2579,11 @@ type ListPaymentsResponse struct {
 
 	// Payments is the set of invoices that were returned.
 	Payments []Payment
+
+	// TotalNumPayments is the total number of payments in the payments
+	// database. This is only set when CountTotalPayments is set in the
+	// request.
+	TotalNumPayments uint64
 }
 
 // ListPayments makes a paginated call to our listpayments endpoint.
@@ -2574,10 +2596,14 @@ func (s *lightningClient) ListPayments(ctx context.Context,
 	resp, err := s.client.ListPayments(
 		s.adminMac.WithMacaroonAuth(rpcCtx),
 		&lnrpc.ListPaymentsRequest{
-			IncludeIncomplete: req.IncludeIncomplete,
-			IndexOffset:       req.Offset,
-			MaxPayments:       req.MaxPayments,
-			Reversed:          req.Reversed,
+			IncludeIncomplete:  req.IncludeIncomplete,
+			IndexOffset:        req.Offset,
+			MaxPayments:        req.MaxPayments,
+			Reversed:           req.Reversed,
+			CountTotalPayments: req.CountTotalPayments,
+			CreationDateStart:  req.CreationDateStart,
+			CreationDateEnd:    req.CreationDateEnd,
+			OmitHops:           req.OmitHops,
 		})
 	if err != nil {
 		return nil, err
@@ -2628,6 +2654,7 @@ func (s *lightningClient) ListPayments(ctx context.Context,
 		FirstIndexOffset: resp.FirstIndexOffset,
 		LastIndexOffset:  resp.LastIndexOffset,
 		Payments:         payments,
+		TotalNumPayments: resp.TotalNumPayments,
 	}, nil
 }
 
