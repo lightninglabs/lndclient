@@ -49,6 +49,19 @@ type RouterClient interface {
 	EstimateRouteFee(ctx context.Context, dest route.Vertex,
 		amt btcutil.Amount) (lnwire.MilliSatoshi, error)
 
+	// EstimateRouteFeeWithProbe estimates routing costs by probing with an
+	// invoice. The timeout parameter bounds the probe inside lnd; a zero
+	// timeout lets lnd choose its default, currently 60 seconds. Do not rely
+	// on the context deadline or cancellation to bound the probe itself.
+	//
+	// A nil error does not imply that a route was found. Callers must check
+	// that the response FailureReason is FAILURE_REASON_NONE before trusting
+	// RoutingFee or TimeLockDelay. Zero-amount invoices are rejected by lnd
+	// and returned as an error. If a probe unexpectedly succeeds, lnd returns
+	// an RPC error instead of a response.
+	EstimateRouteFeeWithProbe(ctx context.Context, invoice string,
+		timeout time.Duration) (*EstimateRouteFeeWithProbeResponse, error)
+
 	// SubscribeHtlcEvents subscribes to a stream of htlc events from the
 	// router.
 	SubscribeHtlcEvents(ctx context.Context) (<-chan *routerrpc.HtlcEvent,
@@ -317,6 +330,23 @@ type SendPaymentRequest struct {
 	// FirstHopCustomRecords holds the custom TLV records should be sent to
 	// the first hop as part of the wire message.
 	FirstHopCustomRecords map[uint64][]byte
+}
+
+// EstimateRouteFeeWithProbeResponse is the response of a route fee estimate
+// probe.
+type EstimateRouteFeeWithProbeResponse struct {
+	// RoutingFee is a lower bound of the estimated fee to the target
+	// destination within the network.
+	RoutingFee lnwire.MilliSatoshi
+
+	// TimeLockDelay is an estimate of the worst-case time delay that can
+	// occur. Callers still need to factor in the final CLTV delta of the
+	// last hop into this value.
+	TimeLockDelay int64
+
+	// FailureReason indicates whether a probing payment succeeded or
+	// whether and why it failed. FAILURE_REASON_NONE indicates success.
+	FailureReason lnrpc.PaymentFailureReason
 }
 
 // InterceptedHtlc contains information about a htlc that was intercepted in
@@ -741,18 +771,66 @@ func (r *routerClient) trackPayment(ctx context.Context,
 func (r *routerClient) EstimateRouteFee(ctx context.Context, dest route.Vertex,
 	amt btcutil.Amount) (lnwire.MilliSatoshi, error) {
 
-	rpcCtx := r.routerKitMac.WithMacaroonAuth(ctx)
-	rpcReq := &routerrpc.RouteFeeRequest{
+	res, err := r.estimateRouteFee(ctx, &routerrpc.RouteFeeRequest{
 		Dest:   dest[:],
 		AmtSat: int64(amt),
-	}
-
-	rpcRes, err := r.client.EstimateRouteFee(rpcCtx, rpcReq)
+	})
 	if err != nil {
 		return 0, err
 	}
 
-	return lnwire.MilliSatoshi(rpcRes.RoutingFeeMsat), nil
+	return res.RoutingFee, nil
+}
+
+// EstimateRouteFeeWithProbe estimates routing costs by probing with an invoice.
+// The timeout parameter bounds the probe inside lnd; a zero timeout lets lnd
+// choose its default, currently 60 seconds. Do not rely on the context deadline
+// or cancellation to bound the probe itself.
+//
+// A nil error does not imply that a route was found. Callers must check that
+// the response FailureReason is FAILURE_REASON_NONE before trusting RoutingFee
+// or TimeLockDelay. Zero-amount invoices are rejected by lnd and returned as an
+// error. If a probe unexpectedly succeeds, lnd returns an RPC error instead of
+// a response.
+func (r *routerClient) EstimateRouteFeeWithProbe(ctx context.Context,
+	invoice string, timeout time.Duration) (*EstimateRouteFeeWithProbeResponse,
+	error) {
+
+	if timeout < 0 {
+		return nil, fmt.Errorf("timeout must not be negative")
+	}
+
+	rpcReq := &routerrpc.RouteFeeRequest{
+		PaymentRequest: invoice,
+	}
+	if timeout > 0 {
+		const maxTimeout = time.Duration(^uint32(0)) * time.Second
+		if timeout > maxTimeout {
+			return nil, fmt.Errorf("timeout exceeds maximum of %v",
+				maxTimeout)
+		}
+
+		rpcReq.Timeout = uint32((timeout + time.Second - 1) / time.Second)
+	}
+
+	return r.estimateRouteFee(ctx, rpcReq)
+}
+
+func (r *routerClient) estimateRouteFee(ctx context.Context,
+	rpcReq *routerrpc.RouteFeeRequest) (*EstimateRouteFeeWithProbeResponse,
+	error) {
+
+	rpcCtx := r.routerKitMac.WithMacaroonAuth(ctx)
+	rpcRes, err := r.client.EstimateRouteFee(rpcCtx, rpcReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return &EstimateRouteFeeWithProbeResponse{
+		RoutingFee:    lnwire.MilliSatoshi(rpcRes.RoutingFeeMsat),
+		TimeLockDelay: rpcRes.TimeLockDelay,
+		FailureReason: rpcRes.FailureReason,
+	}, nil
 }
 
 // unmarshallPaymentStatus converts an rpc status update to the PaymentStatus
