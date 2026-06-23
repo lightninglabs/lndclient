@@ -7,14 +7,15 @@ import (
 	"fmt"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -99,7 +100,7 @@ type WalletKitClient interface {
 
 	NextAddr(ctx context.Context, accountName string,
 		addressType walletrpc.AddressType,
-		change bool) (btcutil.Address, error)
+		change bool) (btcaddr.Address, error)
 
 	// GetTransaction returns details for a transaction found in the wallet.
 	GetTransaction(ctx context.Context,
@@ -215,7 +216,7 @@ type WalletKitClient interface {
 	// used for funding PSBTs. Only tracking the balance and UTXOs is
 	// currently supported.
 	ImportTaprootScript(ctx context.Context,
-		tapscript *waddrmgr.Tapscript) (btcutil.Address, error)
+		tapscript *waddrmgr.Tapscript) (btcaddr.Address, error)
 }
 
 type walletKitClient struct {
@@ -461,7 +462,7 @@ func (m *walletKitClient) DeriveKey(ctx context.Context,
 }
 
 func (m *walletKitClient) NextAddr(ctx context.Context, accountName string,
-	addressType walletrpc.AddressType, change bool) (btcutil.Address,
+	addressType walletrpc.AddressType, change bool) (btcaddr.Address,
 	error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
@@ -477,7 +478,7 @@ func (m *walletKitClient) NextAddr(ctx context.Context, accountName string,
 		return nil, err
 	}
 
-	addr, err := btcutil.DecodeAddress(resp.Addr, nil)
+	addr, err := btcaddr.DecodeAddress(resp.Addr, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -654,7 +655,7 @@ func UnmarshalTransactionDetail(tx *lnrpc.Transaction,
 
 	var outputDetails []lnwallet.OutputDetail
 	for _, o := range tx.OutputDetails {
-		address, err := btcutil.DecodeAddress(o.Address, chainParams)
+		address, err := btcaddr.DecodeAddress(o.Address, chainParams)
 		if err != nil {
 			return nil, err
 		}
@@ -666,7 +667,7 @@ func UnmarshalTransactionDetail(tx *lnrpc.Transaction,
 
 		outputDetails = append(outputDetails, lnwallet.OutputDetail{
 			OutputType:   unmarshallOutputType(o.OutputType),
-			Addresses:    []btcutil.Address{address},
+			Addresses:    []btcaddr.Address{address},
 			PkScript:     pkScript,
 			OutputIndex:  int(o.OutputIndex),
 			Value:        btcutil.Amount(o.Amount),
@@ -1024,7 +1025,7 @@ func (m *walletKitClient) ImportPublicKey(ctx context.Context,
 // NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
 // funding PSBTs. Only tracking the balance and UTXOs is currently supported.
 func (m *walletKitClient) ImportTaprootScript(ctx context.Context,
-	tapscript *waddrmgr.Tapscript) (btcutil.Address, error) {
+	tapscript *waddrmgr.Tapscript) (btcaddr.Address, error) {
 
 	if tapscript == nil {
 		return nil, fmt.Errorf("invalid tapscript")
@@ -1102,7 +1103,7 @@ func (m *walletKitClient) ImportTaprootScript(ctx context.Context,
 			err)
 	}
 
-	p2trAddr, err := btcutil.DecodeAddress(importResp.P2TrAddress, m.params)
+	p2trAddr, err := btcaddr.DecodeAddress(importResp.P2TrAddress, m.params)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing imported p2tr addr: %v",
 			err)
