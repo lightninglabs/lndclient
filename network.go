@@ -3,7 +3,7 @@ package lndclient
 import (
 	"errors"
 
-	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 )
 
 // Network defines the chain that we operate on.

@@ -11,10 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
+	btcaddr "github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -91,7 +92,7 @@ type LightningClient interface {
 
 	// EstimateFee estimates the total fees for a transaction that pays the
 	// given amount to the passed address.
-	EstimateFee(ctx context.Context, address btcutil.Address,
+	EstimateFee(ctx context.Context, address btcaddr.Address,
 		amt btcutil.Amount, confTarget int32) (btcutil.Amount, error)
 
 	// EstimateFeeToP2WSH estimates the total chain fees in satoshis to send
@@ -181,7 +182,7 @@ type LightningClient interface {
 
 	// CloseChannel closes the channel provided.
 	CloseChannel(ctx context.Context, channel *wire.OutPoint,
-		force bool, confTarget int32, deliveryAddr btcutil.Address,
+		force bool, confTarget int32, deliveryAddr btcaddr.Address,
 		opts ...CloseChannelOption) (chan CloseChannelUpdate,
 		chan error, error)
 
@@ -210,7 +211,7 @@ type LightningClient interface {
 	// confTarget, satsPerVByte are optional and may be set to zero in which
 	// case automatic conf target and fee will be used. Returns the tx id
 	// upon success.
-	SendCoins(ctx context.Context, addr btcutil.Address,
+	SendCoins(ctx context.Context, addr btcaddr.Address,
 		amount btcutil.Amount, sendAll bool, confTarget int32,
 		satsPerVByte chainfee.SatPerVByte, label string) (string, error)
 
@@ -448,7 +449,7 @@ type ChannelInfo struct {
 
 	// CloseAddr is the optional upfront shutdown address set for a
 	// channel.
-	CloseAddr btcutil.Address
+	CloseAddr btcaddr.Address
 
 	// ZeroConf indicates whether the channel is a zero conf channel or not.
 	ZeroConf bool
@@ -527,7 +528,7 @@ func (s *lightningClient) newChannelInfo(channel *lnrpc.Channel) (*ChannelInfo,
 	}
 
 	if channel.CloseAddress != "" {
-		chanInfo.CloseAddr, err = btcutil.DecodeAddress(
+		chanInfo.CloseAddr, err = btcaddr.DecodeAddress(
 			channel.CloseAddress, s.params,
 		)
 		if err != nil {
@@ -1486,7 +1487,7 @@ func newInfo(resp *lnrpc.GetInfoResponse) (*Info, error) {
 // EstimateFee estimates the total fees for a transaction that pays the given
 // amount to the passed address.
 func (s *lightningClient) EstimateFee(ctx context.Context,
-	address btcutil.Address, amt btcutil.Amount, confTarget int32) (
+	address btcaddr.Address, amt btcutil.Amount, confTarget int32) (
 	btcutil.Amount, error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, s.timeout)
@@ -1515,7 +1516,7 @@ func (s *lightningClient) EstimateFeeToP2WSH(ctx context.Context,
 
 	// Generate a dummy p2wsh address for fee estimation.
 	wsh := [32]byte{}
-	p2wshAddress, err := btcutil.NewAddressWitnessScriptHash(
+	p2wshAddress, err := btcaddr.NewAddressWitnessScriptHash(
 		wsh[:], s.params,
 	)
 	if err != nil {
@@ -3178,7 +3179,7 @@ func WithNoWait() CloseChannelOption {
 // that *does not* have an upfront shutdown address set.
 func (s *lightningClient) CloseChannel(ctx context.Context,
 	channel *wire.OutPoint, force bool, confTarget int32,
-	deliveryAddr btcutil.Address, opts ...CloseChannelOption) (
+	deliveryAddr btcaddr.Address, opts ...CloseChannelOption) (
 	chan CloseChannelUpdate, chan error, error) {
 
 	var (
@@ -3605,7 +3606,7 @@ func (s *lightningClient) Connect(ctx context.Context, peer route.Vertex,
 // Either amount or sendAll must be specified, while confTarget, satsPerVByte
 // are optional and may be set to zero in which case automatic conf target and
 // fee will be used. Returns the tx id upon success.
-func (s *lightningClient) SendCoins(ctx context.Context, addr btcutil.Address,
+func (s *lightningClient) SendCoins(ctx context.Context, addr btcaddr.Address,
 	amount btcutil.Amount, sendAll bool, confTarget int32,
 	satsPerVByte chainfee.SatPerVByte, label string) (string, error) {
 
