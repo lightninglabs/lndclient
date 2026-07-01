@@ -7,14 +7,15 @@ import (
 	"fmt"
 	"time"
 
+	btcaddr "github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -99,7 +100,7 @@ type WalletKitClient interface {
 
 	NextAddr(ctx context.Context, accountName string,
 		addressType walletrpc.AddressType,
-		change bool) (btcutil.Address, error)
+		change bool) (btcaddr.Address, error)
 
 	// GetTransaction returns details for a transaction found in the wallet.
 	GetTransaction(ctx context.Context,
@@ -107,6 +108,15 @@ type WalletKitClient interface {
 
 	PublishTransaction(ctx context.Context, tx *wire.MsgTx,
 		label string) error
+
+	// SubmitPackage submits a package of related transactions
+	// (topologically sorted, unconfirmed parents first and the child last)
+	// to lnd's chain backend for atomic validation and acceptance, letting
+	// a zero-fee v3/TRUC parent confirm via its fee-paying CPFP child. A nil
+	// maxFeeRate uses the node default; a non-nil value is the per-tx
+	// fee-rate ceiling in sat/vByte (0 disables the limit).
+	SubmitPackage(ctx context.Context, txns []*wire.MsgTx,
+		maxFeeRate *chainfee.SatPerVByte) (*SubmitPackageResult, error)
 
 	SendOutputs(ctx context.Context, outputs []*wire.TxOut,
 		feeRate chainfee.SatPerKWeight,
@@ -215,7 +225,7 @@ type WalletKitClient interface {
 	// used for funding PSBTs. Only tracking the balance and UTXOs is
 	// currently supported.
 	ImportTaprootScript(ctx context.Context,
-		tapscript *waddrmgr.Tapscript) (btcutil.Address, error)
+		tapscript *waddrmgr.Tapscript) (btcaddr.Address, error)
 }
 
 type walletKitClient struct {
@@ -461,7 +471,7 @@ func (m *walletKitClient) DeriveKey(ctx context.Context,
 }
 
 func (m *walletKitClient) NextAddr(ctx context.Context, accountName string,
-	addressType walletrpc.AddressType, change bool) (btcutil.Address,
+	addressType walletrpc.AddressType, change bool) (btcaddr.Address,
 	error) {
 
 	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
@@ -477,7 +487,7 @@ func (m *walletKitClient) NextAddr(ctx context.Context, accountName string,
 		return nil, err
 	}
 
-	addr, err := btcutil.DecodeAddress(resp.Addr, nil)
+	addr, err := btcaddr.DecodeAddress(resp.Addr, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -523,6 +533,99 @@ func (m *walletKitClient) PublishTransaction(ctx context.Context,
 	})
 
 	return err
+}
+
+// SubmitPackageResult is the lndclient-native result of a SubmitPackage call,
+// so callers do not depend on btcjson's submitpackage types.
+type SubmitPackageResult struct {
+	// PackageMsg is the package-level result message (e.g. "success").
+	PackageMsg string
+
+	// ReplacedTransactions holds the txids of any transactions replaced by
+	// accepting this package.
+	ReplacedTransactions []chainhash.Hash
+
+	// TxResults maps each submitted transaction's wtxid to its per-tx
+	// result.
+	TxResults map[string]SubmitPackageTxResult
+}
+
+// SubmitPackageTxResult is the per-transaction result within a submitted
+// package.
+type SubmitPackageTxResult struct {
+	// Txid is the transaction id.
+	Txid chainhash.Hash
+
+	// Err is non-empty if this transaction was rejected.
+	Err string
+}
+
+func (m *walletKitClient) SubmitPackage(ctx context.Context,
+	txns []*wire.MsgTx,
+	maxFeeRate *chainfee.SatPerVByte) (*SubmitPackageResult, error) {
+
+	rawTxs := make([][]byte, 0, len(txns))
+	for _, tx := range txns {
+		var buf bytes.Buffer
+		if err := tx.Serialize(&buf); err != nil {
+			return nil, err
+		}
+
+		rawTxs = append(rawTxs, buf.Bytes())
+	}
+
+	// maxFeeRate is optional: a nil value lets lnd use the node default,
+	// while a non-nil value (including 0, meaning no limit) is forwarded as
+	// the sat/vByte ceiling.
+	var satPerVByte *uint64
+	if maxFeeRate != nil {
+		rate := uint64(*maxFeeRate)
+		satPerVByte = &rate
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+	resp, err := m.client.SubmitPackage(rpcCtx, &walletrpc.SubmitPackageRequest{
+		RawTxs:      rawTxs,
+		SatPerVbyte: satPerVByte,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Map the proto response into the lndclient-native result type.
+	result := &SubmitPackageResult{
+		PackageMsg: resp.PackageMsg,
+		TxResults: make(
+			map[string]SubmitPackageTxResult,
+			len(resp.TxResults),
+		),
+	}
+	for _, replaced := range resp.ReplacedTransactions {
+		hash, err := chainhash.NewHashFromStr(replaced)
+		if err != nil {
+			return nil, err
+		}
+
+		result.ReplacedTransactions = append(
+			result.ReplacedTransactions, *hash,
+		)
+	}
+	for wtxid, txResult := range resp.TxResults {
+		txid, err := chainhash.NewHashFromStr(txResult.Txid)
+		if err != nil {
+			return nil, err
+		}
+
+		result.TxResults[wtxid] = SubmitPackageTxResult{
+			Txid: *txid,
+			Err:  txResult.Error,
+		}
+	}
+
+	return result, nil
 }
 
 func (m *walletKitClient) SendOutputs(ctx context.Context,
@@ -654,7 +757,7 @@ func UnmarshalTransactionDetail(tx *lnrpc.Transaction,
 
 	var outputDetails []lnwallet.OutputDetail
 	for _, o := range tx.OutputDetails {
-		address, err := btcutil.DecodeAddress(o.Address, chainParams)
+		address, err := btcaddr.DecodeAddress(o.Address, chainParams)
 		if err != nil {
 			return nil, err
 		}
@@ -666,7 +769,7 @@ func UnmarshalTransactionDetail(tx *lnrpc.Transaction,
 
 		outputDetails = append(outputDetails, lnwallet.OutputDetail{
 			OutputType:   unmarshallOutputType(o.OutputType),
-			Addresses:    []btcutil.Address{address},
+			Addresses:    []btcaddr.Address{address},
 			PkScript:     pkScript,
 			OutputIndex:  int(o.OutputIndex),
 			Value:        btcutil.Amount(o.Amount),
@@ -1024,7 +1127,7 @@ func (m *walletKitClient) ImportPublicKey(ctx context.Context,
 // NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
 // funding PSBTs. Only tracking the balance and UTXOs is currently supported.
 func (m *walletKitClient) ImportTaprootScript(ctx context.Context,
-	tapscript *waddrmgr.Tapscript) (btcutil.Address, error) {
+	tapscript *waddrmgr.Tapscript) (btcaddr.Address, error) {
 
 	if tapscript == nil {
 		return nil, fmt.Errorf("invalid tapscript")
@@ -1102,7 +1205,7 @@ func (m *walletKitClient) ImportTaprootScript(ctx context.Context,
 			err)
 	}
 
-	p2trAddr, err := btcutil.DecodeAddress(importResp.P2TrAddress, m.params)
+	p2trAddr, err := btcaddr.DecodeAddress(importResp.P2TrAddress, m.params)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing imported p2tr addr: %v",
 			err)

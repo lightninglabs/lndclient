@@ -1184,6 +1184,14 @@
                 }
             ]
         },
+        "/walletrpc.WalletKit/SubmitPackage": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/walletrpc.WalletKit/ReleaseOutput": {
             "permissions": [
                 {
