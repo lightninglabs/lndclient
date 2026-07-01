@@ -109,6 +109,15 @@ type WalletKitClient interface {
 	PublishTransaction(ctx context.Context, tx *wire.MsgTx,
 		label string) error
 
+	// SubmitPackage submits a package of related transactions
+	// (topologically sorted, unconfirmed parents first and the child last)
+	// to lnd's chain backend for atomic validation and acceptance, letting
+	// a zero-fee v3/TRUC parent confirm via its fee-paying CPFP child. A nil
+	// maxFeeRate uses the node default; a non-nil value is the per-tx
+	// fee-rate ceiling in sat/vByte (0 disables the limit).
+	SubmitPackage(ctx context.Context, txns []*wire.MsgTx,
+		maxFeeRate *chainfee.SatPerVByte) (*SubmitPackageResult, error)
+
 	SendOutputs(ctx context.Context, outputs []*wire.TxOut,
 		feeRate chainfee.SatPerKWeight,
 		label string) (*wire.MsgTx, error)
@@ -524,6 +533,99 @@ func (m *walletKitClient) PublishTransaction(ctx context.Context,
 	})
 
 	return err
+}
+
+// SubmitPackageResult is the lndclient-native result of a SubmitPackage call,
+// so callers do not depend on btcjson's submitpackage types.
+type SubmitPackageResult struct {
+	// PackageMsg is the package-level result message (e.g. "success").
+	PackageMsg string
+
+	// ReplacedTransactions holds the txids of any transactions replaced by
+	// accepting this package.
+	ReplacedTransactions []chainhash.Hash
+
+	// TxResults maps each submitted transaction's wtxid to its per-tx
+	// result.
+	TxResults map[string]SubmitPackageTxResult
+}
+
+// SubmitPackageTxResult is the per-transaction result within a submitted
+// package.
+type SubmitPackageTxResult struct {
+	// Txid is the transaction id.
+	Txid chainhash.Hash
+
+	// Err is non-empty if this transaction was rejected.
+	Err string
+}
+
+func (m *walletKitClient) SubmitPackage(ctx context.Context,
+	txns []*wire.MsgTx,
+	maxFeeRate *chainfee.SatPerVByte) (*SubmitPackageResult, error) {
+
+	rawTxs := make([][]byte, 0, len(txns))
+	for _, tx := range txns {
+		var buf bytes.Buffer
+		if err := tx.Serialize(&buf); err != nil {
+			return nil, err
+		}
+
+		rawTxs = append(rawTxs, buf.Bytes())
+	}
+
+	// maxFeeRate is optional: a nil value lets lnd use the node default,
+	// while a non-nil value (including 0, meaning no limit) is forwarded as
+	// the sat/vByte ceiling.
+	var satPerVByte *uint64
+	if maxFeeRate != nil {
+		rate := uint64(*maxFeeRate)
+		satPerVByte = &rate
+	}
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+	resp, err := m.client.SubmitPackage(rpcCtx, &walletrpc.SubmitPackageRequest{
+		RawTxs:      rawTxs,
+		SatPerVbyte: satPerVByte,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Map the proto response into the lndclient-native result type.
+	result := &SubmitPackageResult{
+		PackageMsg: resp.PackageMsg,
+		TxResults: make(
+			map[string]SubmitPackageTxResult,
+			len(resp.TxResults),
+		),
+	}
+	for _, replaced := range resp.ReplacedTransactions {
+		hash, err := chainhash.NewHashFromStr(replaced)
+		if err != nil {
+			return nil, err
+		}
+
+		result.ReplacedTransactions = append(
+			result.ReplacedTransactions, *hash,
+		)
+	}
+	for wtxid, txResult := range resp.TxResults {
+		txid, err := chainhash.NewHashFromStr(txResult.Txid)
+		if err != nil {
+			return nil, err
+		}
+
+		result.TxResults[wtxid] = SubmitPackageTxResult{
+			Txid: *txid,
+			Err:  txResult.Error,
+		}
+	}
+
+	return result, nil
 }
 
 func (m *walletKitClient) SendOutputs(ctx context.Context,
