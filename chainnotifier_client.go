@@ -27,6 +27,21 @@ type NotifierOptions struct {
 	// the passed in context to cancel being notified once the required
 	// number of confirmations have been reached.
 	ReOrgChan chan struct{}
+
+	// ReOrgDepthChan if set, will be sent the depth of a re-org whenever
+	// the transaction is re-organized out of the chain. It carries the same
+	// signal as ReOrgChan but with the re-org depth attached. Only
+	// confirmation notifications populate a depth; spend notifications send
+	// 0. Like ReOrgChan, setting this keeps the notification listener alive
+	// past the first event.
+	ReOrgDepthChan chan int32
+
+	// DoneChan if set, will be sent on once the notification is no longer
+	// under the risk of being re-organized out of the chain, i.e. it has
+	// reached the backend's re-org safety depth. Setting this keeps the
+	// notification listener alive past the first event so the terminal Done
+	// signal can be delivered.
+	DoneChan chan struct{}
 }
 
 // DefaultNotifierOptions returns the set of default options for the notifier.
@@ -55,6 +70,27 @@ func WithIncludeBlock() NotifierOption {
 func WithReOrgChan(reOrgChan chan struct{}) NotifierOption {
 	return func(o *NotifierOptions) {
 		o.ReOrgChan = reOrgChan
+	}
+}
+
+// WithReOrgDepthChan configures a channel that will be sent the depth of a
+// re-org whenever the transaction/spend is re-organized out of the chain. Like
+// WithReOrgChan, setting this keeps the notification listener alive past the
+// first event, so the caller must cancel the passed in context to stop being
+// notified. Only confirmation notifications populate a non-zero depth.
+func WithReOrgDepthChan(reOrgDepthChan chan int32) NotifierOption {
+	return func(o *NotifierOptions) {
+		o.ReOrgDepthChan = reOrgDepthChan
+	}
+}
+
+// WithDoneChan configures a channel that will be sent on once the notification
+// has reached the backend's re-org safety depth and is therefore complete.
+// Setting this keeps the notification listener alive past the first event so
+// the terminal Done signal can be delivered.
+func WithDoneChan(doneChan chan struct{}) NotifierOption {
+	return func(o *NotifierOptions) {
+		o.DoneChan = doneChan
 	}
 }
 
@@ -178,16 +214,15 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 		}
 	}
 
-	processReorg := func() {
-		if opts.ReOrgChan == nil {
-			return
-		}
+	// reorgAware reports whether the caller asked to keep the listener
+	// alive past the first event to observe re-orgs or the terminal Done
+	// signal.
+	reorgAware := opts.ReOrgChan != nil || opts.ReOrgDepthChan != nil ||
+		opts.DoneChan != nil
 
-		select {
-		case opts.ReOrgChan <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
+	processReorg := func(depth int32) {
+		deliver(ctx, opts.ReOrgChan, struct{}{})
+		deliver(ctx, opts.ReOrgDepthChan, depth)
 	}
 
 	s.wg.Add(1)
@@ -213,12 +248,21 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 				// we don't return here, since we might want to
 				// be informed about the new block we got
 				// confirmed in after a re-org.
-				if opts.ReOrgChan == nil {
+				if !reorgAware {
 					return
 				}
 
 			case *chainrpc.SpendEvent_Reorg:
-				processReorg()
+				// The spend notifier does not track re-org
+				// depth, so a depth of 0 is forwarded.
+				processReorg(0)
+
+			// The spend has reached the backend's re-org safety
+			// depth: deliver the terminal Done signal and stop.
+			case *chainrpc.SpendEvent_Done:
+				deliver(ctx, opts.DoneChan, struct{}{})
+
+				return
 
 			// Nil event, should never happen.
 			case nil:
@@ -235,6 +279,21 @@ func (s *chainNotifierClient) RegisterSpendNtfn(ctx context.Context,
 	}()
 
 	return spendChan, errChan, nil
+}
+
+// deliver performs a non-blocking-until-ctx send of v on ch, if ch is
+// non-nil. It is used to fan re-org/depth/done signals out to the optional
+// caller-supplied channels without blocking the notifier read loop beyond the
+// lifetime of the registration context.
+func deliver[T any](ctx context.Context, ch chan T, v T) {
+	if ch == nil {
+		return
+	}
+
+	select {
+	case ch <- v:
+	case <-ctx.Done():
+	}
 }
 
 func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
@@ -266,6 +325,12 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 
 	confChan := make(chan *chainntnfs.TxConfirmation, 1)
 	errChan := make(chan error, 1)
+
+	// reorgAware reports whether the caller asked to keep the listener
+	// alive past the first confirmation to observe re-orgs or the terminal
+	// Done signal.
+	reorgAware := opts.ReOrgChan != nil || opts.ReOrgDepthChan != nil ||
+		opts.DoneChan != nil
 
 	s.wg.Add(1)
 	go func() {
@@ -325,22 +390,27 @@ func (s *chainNotifierClient) RegisterConfirmationsNtfn(ctx context.Context,
 				// we don't return here, since we might want to
 				// be informed about the new block we got
 				// confirmed in after a re-org.
-				if opts.ReOrgChan == nil {
+				if !reorgAware {
 					return
 				}
 
-			// On a re-org, we just need to signal, we don't have
-			// any additional information. But we only signal if the
-			// caller requested to be notified about re-orgs.
+			// On a re-org, we signal and forward the re-org depth,
+			// but only if the caller requested to be notified.
 			case *chainrpc.ConfEvent_Reorg:
-				if opts.ReOrgChan != nil {
-					select {
-					case opts.ReOrgChan <- struct{}{}:
-					case <-ctx.Done():
-						return
-					}
-				}
+				deliver(ctx, opts.ReOrgChan, struct{}{})
+				deliver(
+					ctx, opts.ReOrgDepthChan,
+					int32(c.Reorg.Depth),
+				)
 				continue
+
+			// The confirmation has reached the backend's re-org
+			// safety depth: deliver the terminal Done signal and
+			// stop.
+			case *chainrpc.ConfEvent_Done:
+				deliver(ctx, opts.DoneChan, struct{}{})
+
+				return
 
 			// Nil event, should never happen.
 			case nil:
