@@ -1168,6 +1168,14 @@
                 }
             ]
         },
+        "/walletrpc.WalletKit/RemoveTransaction": {
+            "permissions": [
+                {
+                    "entity": "onchain",
+                    "action": "write"
+                }
+            ]
+        },
         "/walletrpc.WalletKit/PendingSweeps": {
             "permissions": [
                 {

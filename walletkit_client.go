@@ -106,6 +106,13 @@ type WalletKitClient interface {
 	GetTransaction(ctx context.Context,
 		txid chainhash.Hash) (Transaction, error)
 
+	// RemoveTransaction removes the transaction with the given hash, and
+	// all transactions that depend on it, from the wallet's store and its
+	// unconfirmed-rebroadcast set. It is the programmatic form of
+	// `lncli wallet removetx`, used to stop lnd from perpetually
+	// rebroadcasting a transaction the caller has abandoned.
+	RemoveTransaction(ctx context.Context, txid chainhash.Hash) error
+
 	PublishTransaction(ctx context.Context, tx *wire.MsgTx,
 		label string) error
 
@@ -513,6 +520,28 @@ func (m *walletKitClient) GetTransaction(ctx context.Context,
 	}
 
 	return unmarshallTransaction(resp)
+}
+
+// RemoveTransaction removes the transaction with the given hash, and all
+// transactions that depend on it, from the wallet. This stops lnd from
+// continuing to rebroadcast an unconfirmed transaction the caller no longer
+// wants in the mempool. The underlying RPC reuses GetTransactionRequest to
+// identify the transaction by hash.
+func (m *walletKitClient) RemoveTransaction(ctx context.Context,
+	txid chainhash.Hash) error {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+
+	_, err := m.client.RemoveTransaction(
+		rpcCtx, &walletrpc.GetTransactionRequest{
+			Txid: txid.String(),
+		},
+	)
+
+	return err
 }
 
 func (m *walletKitClient) PublishTransaction(ctx context.Context,
