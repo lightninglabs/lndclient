@@ -2,19 +2,21 @@ package lndclient
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
 
-type mockRouterRPCClient struct {
+type mockRouteFeeRPCClient struct {
 	routerrpc.RouterClient
 
 	request  *routerrpc.RouteFeeRequest
@@ -22,11 +24,12 @@ type mockRouterRPCClient struct {
 	err      error
 }
 
-func (m *mockRouterRPCClient) EstimateRouteFee(_ context.Context,
+func (m *mockRouteFeeRPCClient) EstimateRouteFee(_ context.Context,
 	request *routerrpc.RouteFeeRequest, _ ...grpc.CallOption) (
 	*routerrpc.RouteFeeResponse, error) {
 
 	m.request = request
+
 	return m.response, m.err
 }
 
@@ -35,7 +38,7 @@ func (m *mockRouterRPCClient) EstimateRouteFee(_ context.Context,
 func TestEstimateRouteFeeWithProbe(t *testing.T) {
 	t.Parallel()
 
-	mock := &mockRouterRPCClient{
+	mock := &mockRouteFeeRPCClient{
 		response: &routerrpc.RouteFeeResponse{
 			RoutingFeeMsat: 987,
 			TimeLockDelay:  654,
@@ -69,7 +72,7 @@ func TestEstimateRouteFee(t *testing.T) {
 	t.Parallel()
 
 	dest := testVertex()
-	mock := &mockRouterRPCClient{
+	mock := &mockRouteFeeRPCClient{
 		response: &routerrpc.RouteFeeResponse{
 			RoutingFeeMsat: 4321,
 		},
@@ -113,7 +116,7 @@ func TestEstimateRouteFeeWithProbeRejectsInvalidTimeout(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mock := &mockRouterRPCClient{}
+			mock := &mockRouteFeeRPCClient{}
 			client := &routerClient{
 				client: mock,
 			}
@@ -125,6 +128,70 @@ func TestEstimateRouteFeeWithProbeRejectsInvalidTimeout(t *testing.T) {
 			require.Nil(t, mock.request)
 		})
 	}
+}
+
+type mockSendPaymentRPCClient struct {
+	routerrpc.RouterClient
+
+	request *routerrpc.SendPaymentRequest
+}
+
+func (m *mockSendPaymentRPCClient) SendPaymentV2(_ context.Context,
+	request *routerrpc.SendPaymentRequest, _ ...grpc.CallOption) (
+	routerrpc.Router_SendPaymentV2Client, error) {
+
+	m.request = request
+
+	return &mockSendPaymentStream{}, nil
+}
+
+type mockSendPaymentStream struct {
+	routerrpc.Router_SendPaymentV2Client
+}
+
+func (m *mockSendPaymentStream) Recv() (*lnrpc.Payment, error) {
+	return nil, io.EOF
+}
+
+// TestSendPaymentComponents checks that all invoice component fields are
+// forwarded to lnd without an encoded payment request.
+func TestSendPaymentComponents(t *testing.T) {
+	t.Parallel()
+
+	target := testVertex()
+	paymentHash := lntypes.Hash{1, 2, 3}
+	paymentAddr := [32]byte{4, 5, 6}
+	destFeatures := []lnrpc.FeatureBit{
+		lnrpc.FeatureBit_TLV_ONION_REQ,
+		lnrpc.FeatureBit_PAYMENT_ADDR_REQ,
+		lnrpc.FeatureBit_MPP_OPT,
+	}
+
+	mock := &mockSendPaymentRPCClient{}
+	client := &routerClient{
+		client: mock,
+	}
+
+	_, _, err := client.SendPayment(
+		t.Context(), SendPaymentRequest{
+			Target:         target,
+			AmountMsat:     123456,
+			PaymentHash:    &paymentHash,
+			PaymentAddr:    &paymentAddr,
+			FinalCLTVDelta: 144,
+			DestFeatures:   destFeatures,
+		},
+	)
+	require.NoError(t, err)
+
+	require.Empty(t, mock.request.PaymentRequest)
+	require.Equal(t, target[:], mock.request.Dest)
+	require.Zero(t, mock.request.Amt)
+	require.Equal(t, int64(123456), mock.request.AmtMsat)
+	require.Equal(t, paymentHash[:], mock.request.PaymentHash)
+	require.Equal(t, paymentAddr[:], mock.request.PaymentAddr)
+	require.Equal(t, int32(144), mock.request.FinalCltvDelta)
+	require.Equal(t, destFeatures, mock.request.DestFeatures)
 }
 
 func testVertex() route.Vertex {
