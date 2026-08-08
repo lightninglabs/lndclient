@@ -2961,7 +2961,11 @@ func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
 	}
 
 	if resp.Expiry != 0 {
-		paymentReq.Expiry = time.Unix(resp.Expiry, 0)
+		// LND reports expiry as a duration from the invoice timestamp.
+		invoiceTimestamp := time.Unix(resp.Timestamp, 0)
+		paymentReq.Expiry = invoiceTimestamp.Add(
+			time.Duration(resp.Expiry) * time.Second,
+		)
 	}
 
 	return paymentReq, nil
