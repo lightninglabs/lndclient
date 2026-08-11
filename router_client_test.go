@@ -194,6 +194,29 @@ func TestSendPaymentComponents(t *testing.T) {
 	require.Equal(t, destFeatures, mock.request.DestFeatures)
 }
 
+// TestSendPaymentAMPComponents checks that AMP component payments can omit a
+// payment hash for lnd to generate the AMP payment identifiers.
+func TestSendPaymentAMPComponents(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockSendPaymentRPCClient{}
+	client := &routerClient{
+		client: mock,
+	}
+
+	_, _, err := client.SendPayment(
+		t.Context(), SendPaymentRequest{
+			Target:     testVertex(),
+			AmountMsat: 123456,
+			AMP:        true,
+		},
+	)
+	require.NoError(t, err)
+
+	require.True(t, mock.request.Amp)
+	require.Empty(t, mock.request.PaymentHash)
+}
+
 func testVertex() route.Vertex {
 	var vertex route.Vertex
 	for i := range vertex {

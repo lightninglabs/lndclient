@@ -571,7 +571,9 @@ func (r *routerClient) SendPayment(ctx context.Context,
 		rpcReq.Dest = request.Target[:]
 		rpcReq.Amt = int64(request.Amount)
 		rpcReq.AmtMsat = int64(request.AmountMsat)
-		rpcReq.PaymentHash = request.PaymentHash[:]
+		if request.PaymentHash != nil {
+			rpcReq.PaymentHash = request.PaymentHash[:]
+		}
 		if request.PaymentAddr != nil {
 			rpcReq.PaymentAddr = request.PaymentAddr[:]
 		}
