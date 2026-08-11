@@ -6,12 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
@@ -161,6 +163,14 @@ func TestSendPaymentComponents(t *testing.T) {
 	target := testVertex()
 	paymentHash := lntypes.Hash{1, 2, 3}
 	paymentAddr := [32]byte{4, 5, 6}
+	_, hintNode := btcec.PrivKeyFromBytes([]byte{7, 8, 9})
+	routeHints := [][]zpay32.HopHint{{{
+		NodeID:                    hintNode,
+		ChannelID:                 123,
+		FeeBaseMSat:               456,
+		FeeProportionalMillionths: 789,
+		CLTVExpiryDelta:           40,
+	}}}
 	destFeatures := []lnrpc.FeatureBit{
 		lnrpc.FeatureBit_TLV_ONION_REQ,
 		lnrpc.FeatureBit_PAYMENT_ADDR_REQ,
@@ -179,6 +189,7 @@ func TestSendPaymentComponents(t *testing.T) {
 			PaymentHash:    &paymentHash,
 			PaymentAddr:    &paymentAddr,
 			FinalCLTVDelta: 144,
+			RouteHints:     routeHints,
 			DestFeatures:   destFeatures,
 		},
 	)
@@ -191,6 +202,15 @@ func TestSendPaymentComponents(t *testing.T) {
 	require.Equal(t, paymentHash[:], mock.request.PaymentHash)
 	require.Equal(t, paymentAddr[:], mock.request.PaymentAddr)
 	require.Equal(t, int32(144), mock.request.FinalCltvDelta)
+	require.Equal(t, []*lnrpc.RouteHint{{
+		HopHints: []*lnrpc.HopHint{{
+			NodeId:                    route.NewVertex(hintNode).String(),
+			ChanId:                    123,
+			FeeBaseMsat:               456,
+			FeeProportionalMillionths: 789,
+			CltvExpiryDelta:           40,
+		}},
+	}}, mock.request.RouteHints)
 	require.Equal(t, destFeatures, mock.request.DestFeatures)
 }
 
