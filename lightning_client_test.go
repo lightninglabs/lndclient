@@ -37,9 +37,9 @@ func (m *mockDecodePayReqRPCClient) DecodePayReq(_ context.Context,
 	return m.response, nil
 }
 
-// TestLightningClientDecodePaymentRequestExpiry ensures that the relative
+// TestLightningClientDecodePaymentRequestExpiresAt ensures that the relative
 // expiry returned by lnd is converted to an absolute expiration time.
-func TestLightningClientDecodePaymentRequestExpiry(t *testing.T) {
+func TestLightningClientDecodePaymentRequestExpiresAt(t *testing.T) {
 	t.Parallel()
 
 	timestamp := time.Unix(1_700_000_000, 0)
@@ -65,7 +65,7 @@ func TestLightningClientDecodePaymentRequestExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, encoded, mock.request.PayReq)
 	require.Equal(t, timestamp, request.Timestamp)
-	require.Equal(t, timestamp.Add(expiry), request.Expiry)
+	require.Equal(t, timestamp.Add(expiry), request.ExpiresAt)
 }
 
 // mockRPCClient implements lnrpc.LightningClient with dynamic method
