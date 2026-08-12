@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
@@ -17,6 +19,53 @@ import (
 type addInvoiceArg struct {
 	in   *lnrpc.Invoice
 	opts []grpc.CallOption
+}
+
+type mockDecodePayReqRPCClient struct {
+	lnrpc.LightningClient
+
+	request  *lnrpc.PayReqString
+	response *lnrpc.PayReq
+}
+
+func (m *mockDecodePayReqRPCClient) DecodePayReq(_ context.Context,
+	request *lnrpc.PayReqString, _ ...grpc.CallOption) (*lnrpc.PayReq,
+	error) {
+
+	m.request = request
+
+	return m.response, nil
+}
+
+// TestLightningClientDecodePaymentRequestExpiresAt ensures that the relative
+// expiry returned by lnd is converted to an absolute expiration time.
+func TestLightningClientDecodePaymentRequestExpiresAt(t *testing.T) {
+	t.Parallel()
+
+	timestamp := time.Unix(1_700_000_000, 0)
+	expiry := 90 * time.Minute
+	paymentHash := lntypes.Hash{1, 2, 3}
+	destination := route.Vertex{2}
+	encoded := "test invoice"
+
+	mock := &mockDecodePayReqRPCClient{
+		response: &lnrpc.PayReq{
+			Destination: destination.String(),
+			PaymentHash: paymentHash.String(),
+			Timestamp:   timestamp.Unix(),
+			Expiry:      int64(expiry.Seconds()),
+		},
+	}
+	client := &lightningClient{
+		client:  mock,
+		timeout: time.Second,
+	}
+
+	request, err := client.DecodePaymentRequest(t.Context(), encoded)
+	require.NoError(t, err)
+	require.Equal(t, encoded, mock.request.PayReq)
+	require.Equal(t, timestamp, request.Timestamp)
+	require.Equal(t, timestamp.Add(expiry), request.ExpiresAt)
 }
 
 // mockRPCClient implements lnrpc.LightningClient with dynamic method

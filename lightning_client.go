@@ -2908,8 +2908,8 @@ type PaymentRequest struct {
 	// Timestamp of the payment request.
 	Timestamp time.Time
 
-	// Expiry is the time at which the payment request expires.
-	Expiry time.Time
+	// ExpiresAt is the time at which the payment request expires.
+	ExpiresAt time.Time
 
 	// Description is a description attached to the payment request.
 	Description string
@@ -2961,7 +2961,11 @@ func (s *lightningClient) DecodePaymentRequest(ctx context.Context,
 	}
 
 	if resp.Expiry != 0 {
-		paymentReq.Expiry = time.Unix(resp.Expiry, 0)
+		// LND reports expiry as a duration from the invoice timestamp.
+		invoiceTimestamp := time.Unix(resp.Timestamp, 0)
+		paymentReq.ExpiresAt = invoiceTimestamp.Add(
+			time.Duration(resp.Expiry) * time.Second,
+		)
 	}
 
 	return paymentReq, nil
