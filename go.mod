@@ -10,12 +10,12 @@ require (
 	github.com/btcsuite/btcd/txscript/v2 v2.0.0
 	github.com/btcsuite/btcd/wire/v2 v2.0.0
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250728225537-6090e87c6c5b
-	github.com/btcsuite/btcwallet v0.18.0
-	github.com/btcsuite/btcwallet/wtxmgr v1.6.0
+	github.com/btcsuite/btcwallet v0.18.1-0.20261020132555-16cfb4483d1f
+	github.com/btcsuite/btcwallet/wtxmgr v1.6.1-0.20261020132555-16cfb4483d1f
 	github.com/lightningnetwork/lnd v0.21.0-beta.rc2.0.20260630214209-40c64f9db30d
 	github.com/lightningnetwork/lnd/kvdb v1.5.1
 	github.com/stretchr/testify v1.11.1
-	google.golang.org/grpc v1.79.3
+	google.golang.org/grpc v1.83.1
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.1.0
 )
@@ -72,7 +72,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
 	github.com/jackc/pgconn v1.14.3 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438 // indirect
@@ -80,7 +79,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.9.2 // indirect
+	github.com/jackc/pgx/v5 v5.11.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/jonboulle/clockwork v0.2.2 // indirect
@@ -104,15 +103,15 @@ require (
 	github.com/lightningnetwork/lightning-onion v1.4.0 // indirect
 	github.com/lightningnetwork/lnd/actor v0.0.6 // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/fn/v2 v2.0.9 // indirect
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.10 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
 	github.com/lightningnetwork/lnd/queue v1.2.0 // indirect
 	github.com/lightningnetwork/lnd/sqldb v1.0.13 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/tlv v1.4.0 // indirect
+	github.com/lightningnetwork/lnd/tlv v1.4.1 // indirect
 	github.com/lightningnetwork/lnd/tor v1.2.0 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/miekg/dns v1.1.43 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/sys/user v0.3.0 // indirect
@@ -120,7 +119,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.0.2 // indirect
 	github.com/opencontainers/runc v1.2.8 // indirect
@@ -165,31 +164,28 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.17.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
-	golang.org/x/crypto v0.46.0 // indirect
+	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/exp v0.0.0-20250811191247-51f88131bc50 // indirect
-	golang.org/x/mod v0.30.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/term v0.38.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/mod v0.38.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/term v0.45.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
-	golang.org/x/tools v0.39.0 // indirect
+	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/genproto v0.0.0-20231016165738-49dd2c1f3d0b // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/errgo.v1 v1.0.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
-	modernc.org/libc v1.49.3 // indirect
-	modernc.org/mathutil v1.6.0 // indirect
-	modernc.org/memory v1.8.0 // indirect
-	modernc.org/sqlite v1.29.10 // indirect
-	modernc.org/strutil v1.2.0 // indirect
-	modernc.org/token v1.1.0 // indirect
+	modernc.org/libc v1.75.7 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.12.1 // indirect
+	modernc.org/sqlite v1.59.0 // indirect
 	pgregory.net/rapid v1.2.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
@@ -198,4 +194,8 @@ require (
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
 
-go 1.25.11
+// TEMPORARY: needed until lightningnetwork/lnd#11095 lands, must be replaced
+// with a normal version bump before this can be merged.
+replace github.com/lightningnetwork/lnd => github.com/GeorgeTsagk/lnd v0.0.0-20261022093206-06cd21dc28bb
+
+go 1.26.10
