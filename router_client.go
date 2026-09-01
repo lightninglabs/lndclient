@@ -245,8 +245,9 @@ func NewHtlcFailure(rpcFailure *lnrpc.Failure) *HtlcFailure {
 // SendPaymentRequest defines the payment parameters for a new payment.
 type SendPaymentRequest struct {
 	// Invoice is an encoded payment request. The individual payment
-	// parameters Target, Amount, PaymentHash, FinalCLTVDelta and RouteHints
-	// are only processed when the Invoice field is empty.
+	// parameters Target, Amount, AmountMsat, PaymentHash, PaymentAddr,
+	// FinalCLTVDelta, RouteHints and DestFeatures are only processed when
+	// the Invoice field is empty.
 	Invoice string
 
 	// MaxFee is the fee limit for this payment.
@@ -272,12 +273,20 @@ type SendPaymentRequest struct {
 	Target route.Vertex
 
 	// Amount is the value of the payment to send through the network in
-	// satoshis.
+	// satoshis. Amount and AmountMsat are mutually exclusive.
 	Amount btcutil.Amount
+
+	// AmountMsat is the value of the payment to send through the network in
+	// millisatoshis. Amount and AmountMsat are mutually exclusive.
+	AmountMsat lnwire.MilliSatoshi
 
 	// PaymentHash is the r-hash value to use within the HTLC extended to
 	// the first hop.
 	PaymentHash *lntypes.Hash
+
+	// PaymentAddr is the payment address to use for the payment. If nil, no
+	// payment address is used.
+	PaymentAddr *[32]byte
 
 	// FinalCLTVDelta is the CTLV expiry delta to use for the _final_ hop
 	// in the route. This means that the final hop will have a CLTV delta
@@ -293,6 +302,10 @@ type SendPaymentRequest struct {
 	// together and sorted in forward order in order to reach the
 	// destination successfully.
 	RouteHints [][]zpay32.HopHint
+
+	// DestFeatures contains the feature bits advertised by the payment
+	// destination.
+	DestFeatures []lnrpc.FeatureBit
 
 	// LastHopPubkey is the pubkey of the last hop of the route taken
 	// for this payment. If empty, any hop may be used.
@@ -557,8 +570,15 @@ func (r *routerClient) SendPayment(ctx context.Context,
 	if request.Invoice == "" {
 		rpcReq.Dest = request.Target[:]
 		rpcReq.Amt = int64(request.Amount)
-		rpcReq.PaymentHash = request.PaymentHash[:]
+		rpcReq.AmtMsat = int64(request.AmountMsat)
+		if request.PaymentHash != nil {
+			rpcReq.PaymentHash = request.PaymentHash[:]
+		}
+		if request.PaymentAddr != nil {
+			rpcReq.PaymentAddr = request.PaymentAddr[:]
+		}
 		rpcReq.FinalCltvDelta = int32(request.FinalCLTVDelta)
+		rpcReq.DestFeatures = request.DestFeatures
 
 		routeHints, err := marshallRouteHints(request.RouteHints)
 		if err != nil {
