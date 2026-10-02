@@ -1,11 +1,13 @@
 package lndclient
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/stretchr/testify/require"
@@ -88,6 +90,80 @@ func TestCheckVersionCompatibility(t *testing.T) {
 	if err != ErrBuildTagsMissing {
 		t.Fatalf("unexpected error. got '%v' wanted '%v'", err,
 			ErrVersionIncompatible)
+	}
+}
+
+// TestUnsupportedVersionWarning makes sure a warning is logged if the connected
+// lnd passes the version check requested by the caller but is older than the
+// oldest version still supported by the lnd project.
+func TestUnsupportedVersionWarning(t *testing.T) {
+	testCases := []struct {
+		name       string
+		actual     *verrpc.Version
+		expectWarn bool
+	}{
+		{
+			name: "older than oldest supported version",
+			actual: &verrpc.Version{
+				AppMajor: oldestSupportedVersion.AppMajor,
+				AppMinor: oldestSupportedVersion.AppMinor - 1,
+				AppPatch: 3,
+			},
+			expectWarn: true,
+		},
+		{
+			name:       "oldest supported version",
+			actual:     oldestSupportedVersion,
+			expectWarn: false,
+		},
+		{
+			name: "newer than oldest supported version",
+			actual: &verrpc.Version{
+				AppMajor: oldestSupportedVersion.AppMajor,
+				AppMinor: oldestSupportedVersion.AppMinor + 1,
+				AppPatch: 0,
+			},
+			expectWarn: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Capture everything that is logged on warning level or
+			// above for the duration of the test.
+			var logOutput bytes.Buffer
+			testLogger := btclog.NewSLogger(
+				btclog.NewDefaultHandler(&logOutput),
+			)
+			testLogger.SetLevel(btclog.LevelWarn)
+
+			oldLogger := log
+			UseLogger(testLogger)
+			t.Cleanup(func() {
+				UseLogger(oldLogger)
+			})
+
+			// The caller explicitly accepts any version, so the
+			// check itself must always succeed.
+			client := &mockVersioner{version: tc.actual}
+			version, err := checkVersionCompatibility(
+				client, &verrpc.Version{},
+			)
+			require.NoError(t, err)
+			require.Equal(t, tc.actual, version)
+
+			if !tc.expectWarn {
+				require.Empty(t, logOutput.String())
+
+				return
+			}
+
+			require.Contains(t, logOutput.String(), "[WRN]")
+			require.Contains(
+				t, logOutput.String(),
+				VersionStringShort(tc.actual),
+			)
+		})
 	}
 }
 

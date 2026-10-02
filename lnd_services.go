@@ -46,6 +46,19 @@ var (
 		BuildTags: DefaultBuildTags,
 	}
 
+	// oldestSupportedVersion is the oldest version of lnd that is still
+	// supported by the lnd project, which only maintains the current and
+	// the previous major release. Callers can still connect to an older
+	// node by lowering the required version through the CheckVersion
+	// config option, but a warning is logged in that case. This needs to
+	// be bumped whenever lndclient is updated to a new major release of
+	// lnd.
+	oldestSupportedVersion = &verrpc.Version{
+		AppMajor: 0,
+		AppMinor: 20,
+		AppPatch: 0,
+	}
+
 	// ErrVersionCheckNotImplemented is the error that is returned if the
 	// version RPC is not implemented in lnd. This means the version of lnd
 	// is lower than v0.10.0-beta.
@@ -889,6 +902,17 @@ func checkVersionCompatibility(client VersionerClient,
 	err = assertBuildTagsEnabled(version, expected.BuildTags)
 	if err != nil {
 		return nil, err
+	}
+
+	// The version requested by the caller might be lower than what is
+	// still supported by the lnd project. We don't refuse the connection
+	// in that case but make sure it doesn't go unnoticed.
+	err = AssertVersionCompatible(version, oldestSupportedVersion)
+	if err != nil {
+		log.Warnf("Connected lnd version %v is no longer supported "+
+			"by the lnd project, please upgrade to at least %v",
+			VersionStringShort(version),
+			VersionStringShort(oldestSupportedVersion))
 	}
 
 	// All check positive, version is fully compatible.
