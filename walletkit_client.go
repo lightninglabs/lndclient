@@ -98,6 +98,16 @@ type WalletKitClient interface {
 	DeriveKey(ctx context.Context, locator *keychain.KeyLocator) (
 		*keychain.KeyDescriptor, error)
 
+	// DeriveAndStoreKey derives the key described by the given locator and
+	// also records it in the wallet, which is required for the wallet to be
+	// able to sign with the key later on. Recording a key implies recording
+	// every key in the family that precedes it, so this also advances the
+	// family's derivation index past the given index. The call is monotonic
+	// and idempotent, and lnd bounds the number of keys a single call
+	// derives.
+	DeriveAndStoreKey(ctx context.Context,
+		locator *keychain.KeyLocator) (*keychain.KeyDescriptor, error)
+
 	NextAddr(ctx context.Context, accountName string,
 		addressType walletrpc.AddressType,
 		change bool) (btcaddr.Address, error)
@@ -459,6 +469,32 @@ func (m *walletKitClient) DeriveKey(ctx context.Context,
 
 	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
 	resp, err := m.client.DeriveKey(rpcCtx, &signrpc.KeyLocator{
+		KeyFamily: int32(in.Family),
+		KeyIndex:  int32(in.Index),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	key, err := btcec.ParsePubKey(resp.RawKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &keychain.KeyDescriptor{
+		KeyLocator: *in,
+		PubKey:     key,
+	}, nil
+}
+
+func (m *walletKitClient) DeriveAndStoreKey(ctx context.Context,
+	in *keychain.KeyLocator) (*keychain.KeyDescriptor, error) {
+
+	rpcCtx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+
+	rpcCtx = m.walletKitMac.WithMacaroonAuth(rpcCtx)
+	resp, err := m.client.DeriveAndStoreKey(rpcCtx, &signrpc.KeyLocator{
 		KeyFamily: int32(in.Family),
 		KeyIndex:  int32(in.Index),
 	})

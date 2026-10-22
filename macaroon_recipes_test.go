@@ -18,7 +18,7 @@ var (
 		"routerrpc":   2,
 		"signrpc":     2,
 		"verrpc":      1,
-		"walletrpc":   3,
+		"walletrpc":   4,
 	}
 )
 
