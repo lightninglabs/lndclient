@@ -152,11 +152,26 @@ type LndServicesConfig struct {
 	// block until lnd is unlocked.
 	BlockUntilUnlocked bool
 
+	// BlockUntilServerActive denotes that the NewLndServices function
+	// should block until lnd has reached the SERVER_ACTIVE wallet state,
+	// meaning that lnd's main server has fully started and all RPCs are
+	// ready to be used. This is a stronger guarantee than
+	// BlockUntilUnlocked, which already returns once the RPC_ACTIVE state
+	// is reached, at which point some RPC calls can still fail because the
+	// server is still starting up. Setting this implies
+	// BlockUntilUnlocked.
+	//
+	// NOTE: The SERVER_ACTIVE state only exists in lnd v0.14.0-beta and
+	// later. Against older versions this will block until CallerCtx is
+	// canceled.
+	BlockUntilServerActive bool
+
 	// CallerCtx is an optional context that can be passed if the caller
 	// would like to be able to cancel the long waits involved in starting
 	// up the client, such as waiting for chain sync to complete when
 	// BlockUntilChainSynced is set to true, or waiting for lnd to be
-	// unlocked when BlockUntilUnlocked is set to true. If a context is
+	// unlocked when BlockUntilUnlocked or BlockUntilServerActive is set to
+	// true. If a context is
 	// passed in and its Done() channel sends a message, these waits will
 	// be aborted. This allows a client to still be shut down properly.
 	CallerCtx context.Context
@@ -345,10 +360,11 @@ func NewLndServices(cfg *LndServicesConfig) (*GrpcLndServices, error) {
 		}
 	}
 
-	// Get lnd's info, blocking until lnd is unlocked if required.
+	// Get lnd's info, blocking until lnd is unlocked or its server is
+	// fully active if required.
 	info, err := getLndInfo(
 		cfg.CallerCtx, basicClient, readonlyMac, stateClient,
-		cfg.BlockUntilUnlocked,
+		cfg.BlockUntilUnlocked, cfg.BlockUntilServerActive,
 	)
 	if err != nil {
 		cleanupConn()
@@ -641,11 +657,13 @@ func (s *GrpcLndServices) waitForChainNotifier(ctx context.Context,
 // getLndInfo queries lnd for information about the node it is connected to.
 // If the waitForUnlocked boolean is set, it will examine any errors returned
 // and back off if the failure is due to lnd currently being locked. Otherwise,
-// it will fail fast on any errors returned. We use the raw ln client so that
-// we can set specific grpc options we need to wait for lnd to be ready.
+// it will fail fast on any errors returned. If the waitForServerActive boolean
+// is set, it will additionally wait until lnd has reached the server active
+// state (which implies waiting for the unlock). We use the raw ln client so
+// that we can set specific grpc options we need to wait for lnd to be ready.
 func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 	readonlyMac serializedMacaroon, stateClient StateClient,
-	waitForUnlocked bool) (*Info, error) {
+	waitForUnlocked, waitForServerActive bool) (*Info, error) {
 
 	if ctx == nil {
 		ctx = context.Background()
@@ -663,6 +681,8 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 	// Unlocking: lnd has just been unlocked, -> WalletStateUnlocked
 	// Unlocked, ok: lnd is unlocked and ready
 	//   -> WalletStateRPCActive
+	// Server active: lnd's main server is fully started
+	//   -> WalletStateServerActive
 	// Unlocked, not ok: lnd is unlocked but in bad state, err
 	stateChan, errChan, err := stateClient.SubscribeState(ctx)
 	if err != nil {
@@ -699,13 +719,17 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 	// and will try to return the node info below. This could fail if the
 	// node is indeed still locked so this flag doesn't make a lot of sense
 	// anymore...
-	if !waitForUnlocked {
+	if !waitForUnlocked && !waitForServerActive {
 		return getInfo()
 	}
 
 	// If we do want to wait for the unlock, we need to consume the state
 	// updates now.
-	log.Info("Waiting for lnd to unlock")
+	if waitForServerActive {
+		log.Info("Waiting for lnd's server to become active")
+	} else {
+		log.Info("Waiting for lnd to unlock")
+	}
 	for {
 		select {
 		case state, ok := <-stateChan:
@@ -717,6 +741,16 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 			}
 
 			log.Infof("Wallet state of lnd is now: %v", state)
+
+			// If the caller wants the server to be fully started,
+			// only the server active state is good enough.
+			if waitForServerActive {
+				if state == WalletStateServerActive {
+					return getInfo()
+				}
+
+				continue
+			}
 
 			// Once we reach the final state we can break out of the
 			// loop. We also need to be backward compatible to nodes
@@ -737,7 +771,7 @@ func getLndInfo(ctx context.Context, basicClient lnrpc.LightningClient,
 			}
 
 			log.Errorf("Error while waiting for lnd to be "+
-				"unlocked: %v", err)
+				"ready: %v", err)
 			return nil, err
 
 		case <-ctx.Done():
