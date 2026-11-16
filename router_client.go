@@ -245,9 +245,10 @@ func NewHtlcFailure(rpcFailure *lnrpc.Failure) *HtlcFailure {
 // SendPaymentRequest defines the payment parameters for a new payment.
 type SendPaymentRequest struct {
 	// Invoice is an encoded payment request. The individual payment
-	// parameters Target, Amount, AmountMsat, PaymentHash, PaymentAddr,
-	// FinalCLTVDelta, RouteHints and DestFeatures are only processed when
-	// the Invoice field is empty.
+	// parameters Target, PaymentHash, PaymentAddr, FinalCLTVDelta,
+	// RouteHints and DestFeatures are only processed when Invoice is empty.
+	// Amount or AmountMsat sets the payer amount for an amountless invoice;
+	// both must be zero for a fixed-amount invoice.
 	Invoice string
 
 	// MaxFee is the fee limit for this payment.
@@ -525,6 +526,8 @@ func (r *routerClient) SendPayment(ctx context.Context,
 		FeeLimitSat:           int64(request.MaxFee),
 		FeeLimitMsat:          int64(request.MaxFeeMsat),
 		PaymentRequest:        request.Invoice,
+		Amt:                   int64(request.Amount),
+		AmtMsat:               int64(request.AmountMsat),
 		TimeoutSeconds:        int32(request.Timeout.Seconds()),
 		MaxParts:              request.MaxParts,
 		OutgoingChanIds:       request.OutgoingChanIds,
@@ -569,8 +572,6 @@ func (r *routerClient) SendPayment(ctx context.Context,
 	// payment parameters.
 	if request.Invoice == "" {
 		rpcReq.Dest = request.Target[:]
-		rpcReq.Amt = int64(request.Amount)
-		rpcReq.AmtMsat = int64(request.AmountMsat)
 		if request.PaymentHash != nil {
 			rpcReq.PaymentHash = request.PaymentHash[:]
 		}

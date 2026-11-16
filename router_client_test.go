@@ -245,3 +245,32 @@ func testVertex() route.Vertex {
 
 	return vertex
 }
+
+// TestSendPaymentInvoiceAmount preserves payer amounts for amountless invoices
+// and the zero-amount default for invoices that already carry their amount.
+func TestSendPaymentInvoiceAmount(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		sat  btcutil.Amount
+		msat lnwire.MilliSatoshi
+	}{
+		{name: "invoice amount"},
+		{name: "payer satoshis", sat: 25000},
+		{name: "payer millisatoshis", msat: 25000123},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mock := &mockSendPaymentRPCClient{}
+			client := &routerClient{client: mock}
+			_, _, err := client.SendPayment(t.Context(), SendPaymentRequest{
+				Invoice: "lnbc1amountless", Amount: test.sat, AmountMsat: test.msat,
+			})
+			require.NoError(t, err)
+			require.Equal(t, "lnbc1amountless", mock.request.PaymentRequest)
+			require.Equal(t, int64(test.sat), mock.request.Amt)
+			require.Equal(t, int64(test.msat), mock.request.AmtMsat)
+			require.Empty(t, mock.request.Dest)
+			require.Empty(t, mock.request.PaymentHash)
+		})
+	}
+}
