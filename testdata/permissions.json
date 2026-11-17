@@ -1040,6 +1040,14 @@
                 }
             ]
         },
+        "/walletrpc.WalletKit/DeriveAndStoreKey": {
+            "permissions": [
+                {
+                    "entity": "address",
+                    "action": "write"
+                }
+            ]
+        },
         "/walletrpc.WalletKit/DeriveKey": {
             "permissions": [
                 {
