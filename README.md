@@ -24,11 +24,24 @@ different versions. There are two "levels" of depending on a version of
 
 The current compatibility matrix reads as follows:
 
-| tag          | `lnd` version in `go.mod` | minimum required `lnd` version | 
-|--------------|---------------------------|--------------------------------|
-| `v0.18.5-13` | `v0.18.5-beta`            | `v0.18.5-beta`                 |
-| `v0.20.0-4`  | `v0.20.0-beta`            | `v0.19.0-beta`                 |
-| `v0.21.0-1`  | `v0.21.0-beta`            | `v0.21.0-beta`                 |
+| tag          | `lnd` version in `go.mod` | minimum required `lnd` version | minimum is a supported `lnd` version |
+|--------------|---------------------------|--------------------------------|--------------------------------------|
+| `v0.20.0-4`  | `v0.20.0-beta`            | `v0.19.0-beta`                 | no                                   |
+| `v0.21.0-1`  | `v0.21.0-beta`            | `v0.21.0-beta`                 | yes                                  |
+
+### Supported `lnd` versions
+
+The `lnd` project only supports its current and its previous major release,
+which at the moment are `v0.21.x-beta` and `v0.20.x-beta`. Older versions of
+`lnd` no longer receive fixes and should not be used, even if a tag of this
+library still accepts them (see the last column of the matrix above).
+
+The version check only enforces the minimum required version, which users of
+`lndclient` can lower when creating a new client. To make sure an unsupported
+node doesn't go unnoticed in that case, `lndclient` logs a warning when the
+connected `lnd` is older than the oldest supported version, as defined in
+`oldestSupportedVersion` in [`lnd_services.go`](lnd_services.go). The
+connection itself is not refused.
 
 
 By default, `lndclient` requires (and enforces) the following RPC subservers to
