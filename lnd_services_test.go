@@ -218,7 +218,7 @@ func (l *lockLNDMock) SubscribeState(context.Context) (chan WalletState,
 
 			// If this is the final state, no more states will be
 			// sent to us and we can close the subscription.
-			if state == WalletStateRPCActive {
+			if state == WalletStateServerActive {
 				close(stateChan)
 				close(errChan)
 
@@ -243,6 +243,13 @@ func newLockLndMock(errors []error, stateErr error,
 // TestGetLndInfo tests our logic for querying lnd for information in the case
 // where we wait for the wallet to unlock, and when we fail fast.
 func TestGetLndInfo(t *testing.T) {
+	// A short-lived context for the case where the state we're waiting
+	// for is never reached.
+	timeoutCtx, cancel := context.WithTimeout(
+		context.Background(), 50*time.Millisecond,
+	)
+	defer cancel()
+
 	var (
 		ctx       = context.Background()
 		nonNilErr = errors.New("failed")
@@ -253,6 +260,7 @@ func TestGetLndInfo(t *testing.T) {
 		name         string
 		context      context.Context
 		waitUnlocked bool
+		waitServer   bool
 		stateErr     error
 		states       []WalletState
 		errors       []error
@@ -295,6 +303,31 @@ func TestGetLndInfo(t *testing.T) {
 			expected: nil,
 		},
 		{
+			name:       "wait for server active",
+			waitServer: true,
+			errors:     []error{nil},
+			states: []WalletState{
+				WalletStateLocked,
+				WalletStateUnlocked,
+				WalletStateRPCActive,
+				WalletStateServerActive,
+			},
+			expected: nil,
+		},
+		{
+			// The server active state is never reached, so we
+			// must not return at RPC active and instead run into
+			// the context being canceled.
+			name:       "server active not reached",
+			context:    timeoutCtx,
+			waitServer: true,
+			states: []WalletState{
+				WalletStateUnlocked,
+				WalletStateRPCActive,
+			},
+			expected: context.DeadlineExceeded,
+		},
+		{
 			name:         "lnd down",
 			waitUnlocked: true,
 			stateErr:     context.DeadlineExceeded,
@@ -319,7 +352,7 @@ func TestGetLndInfo(t *testing.T) {
 
 			_, err := getLndInfo(
 				test.context, mock, "readonlymac", mock,
-				test.waitUnlocked,
+				test.waitUnlocked, test.waitServer,
 			)
 
 			if test.expected == nil {
